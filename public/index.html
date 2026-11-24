@@ -3,223 +3,700 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>MailGram</title>
+  <title>Lume</title>
   <link rel="stylesheet" href="style.css">
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#0a0a0a">
   <meta name="apple-mobile-web-app-capable" content="yes">
 </head>
 <body class="theme-dark">
+  <!-- Классическая трёхцветная гирлянда сбоку (красный, зелёный, синий) -->
+  <div id="sideGarland" class="side-garland">
+    <span class="bulb r"></span><span class="bulb g"></span><span class="bulb b"></span>
+    <span class="bulb r"></span><span class="bulb g"></span><span class="bulb b"></span>
+    <span class="bulb r"></span><span class="bulb g"></span><span class="bulb b"></span>
+    <span class="bulb r"></span><span class="bulb g"></span><span class="bulb b"></span>
+  </div>
+
+  <!-- Экран блокировки PIN-кодом -->
+  <div id="pinLockScreen" class="modal hidden" style="z-index:99999;background:var(--bg)">
+    <div class="modal-card" style="max-width:300px;text-align:center">
+      <div style="font-size:36px;margin-bottom:8px">🔒</div>
+      <h3>Введите код-пароль Lume</h3>
+      <p style="font-size:12px;color:var(--muted);margin:6px 0 14px">4 цифры для доступа к приложению</p>
+      <input id="pinUnlockInput" type="password" maxlength="4" inputmode="numeric" placeholder="••••" style="text-align:center;font-size:24px;letter-spacing:8px;width:100%">
+      <button id="pinUnlockBtn" style="width:100%;margin-top:12px">Разблокировать</button>
+    </div>
+  </div>
+
+  <!-- Экран Входа / Регистрации -->
   <div id="auth">
-    <h1>MailGram</h1>
-    <p id="authSubtitle" style="color:var(--muted)">Мессенджер со входом по почте</p>
+    <h1 style="letter-spacing:1px">Lume ✨</h1>
+    <p id="authSubtitle" style="color:var(--muted)">Мессенджер нового поколения</p>
     <div class="tabs">
       <button class="tab active" data-tab="login">Вход</button>
       <button class="tab" data-tab="register">Регистрация</button>
     </div>
     <form id="loginForm">
-      <input name="email" type="email" placeholder="Email" required>
+      <input name="login" type="text" placeholder="Email или номер (+888 / +999)" required>
       <input name="password" type="password" placeholder="Пароль" required>
       <button type="submit">Войти</button>
     </form>
     <form id="registerForm" class="hidden">
       <input name="name" type="text" placeholder="Ваше имя" required>
-      <input name="email" type="email" placeholder="Email" required>
+      <input name="email" type="email" placeholder="Email (только для регистрации и входа)" required>
       <input name="password" type="password" placeholder="Пароль (от 6 символов)" required>
       <button type="submit">Создать аккаунт</button>
     </form>
     <div id="authMsg" style="color:#f87171;font-size:14px"></div>
   </div>
-
+  <!-- Основное окно приложения -->
   <div id="app" class="hidden">
-    <div class="sidebar">
-      <div class="me-bar">
-        <div class="me-info" id="openMyProfile" title="Мой профиль">
-          <img id="meAvatar" class="avatar" src="" alt="">
-          <div>
-            <div id="meName"></div>
-            <div id="meSub" style="font-size:12px;color:#60a5fa"></div>
+    <div class="main-shell">
+      <!-- Вкладка 1: ЧАТЫ -->
+      <section id="tabChats" class="main-tab-pane">
+        <div class="top-bar">
+          <div id="topHandleTitle" class="top-handle">Lume</div>
+          <div class="top-actions">
+            <button id="openWalletBtn" class="pill-stars-btn" title="Кошелёк Lume Stars">⭐ <span id="topStarsVal">0</span></button>
+            <button id="openAdminBtn" class="icon-mini hidden" title="Админ-панель">👑</button>
+            <button id="openCreateRoomBtn" class="icon-mini" title="Создать группу или канал">📢</button>
           </div>
         </div>
-        <div class="me-actions">
-          <button id="openAdminBtn" class="icon-mini hidden" title="Админ-панель">👑</button>
-          <button id="openCreateRoomBtn" class="icon-mini" title="Создать группу или канал">📢</button>
-          <button id="openSettingsBtn" class="icon-mini" title="Настройки">⚙️</button>
-          <button id="logoutBtn" title="Выйти">Выйти</button>
+
+        <!-- Лента мини-историй (6, 12, 24 часа) -->
+        <div class="stories-strip">
+          <div id="addStoryBtn" class="story-bubble add-story">
+            <div class="story-ring"><span>+</span></div>
+            <div class="story-lbl">История</div>
+          </div>
+          <div id="storiesList" class="stories-list"></div>
         </div>
-      </div>
-      <form id="newChatForm">
-        <input name="query" type="text" placeholder="Email, @username или +888..." required>
-        <button type="submit">+</button>
-      </form>
-      <div id="chatList"></div>
+
+        <!-- Поиск по ID, @username или номеру +888/+999 -->
+        <form id="newChatForm" class="search-bar-form">
+          <input name="query" type="text" placeholder="Поиск по ID, @username или +888..." required>
+          <button type="submit">+</button>
+        </form>
+
+        <!-- Папки чатов как в Telegram -->
+        <div class="folders-bar">
+          <button type="button" class="folder-tab active" data-folder="all">Все</button>
+          <button type="button" class="folder-tab" data-folder="private">Личные</button>
+          <button type="button" class="folder-tab" data-folder="group">Группы</button>
+          <button type="button" class="folder-tab" data-folder="channel">Каналы</button>
+          <button type="button" class="folder-tab" data-folder="unread">Непрочитанные</button>
+          <button type="button" id="toggleHiddenChatsBtn" class="folder-tab" title="Скрытые чаты под PIN">🔐</button>
+        </div>
+
+        <div id="chatList" class="scroll-list"></div>
+      </section>
+      <!-- Вкладка 2: КОНТАКТЫ -->
+      <section id="tabContacts" class="main-tab-pane hidden">
+        <div class="top-bar">
+          <div class="top-handle">Контакты</div>
+          <button id="openNumberMarketBtn" class="pill-stars-btn">📞 Номера +888/+999</button>
+        </div>
+        <form id="addContactForm" class="search-bar-form">
+          <input name="query" type="text" placeholder="Добавить контакт: ID, @username или +888..." required>
+          <button type="submit">Добавить</button>
+        </form>
+        <div id="contactsList" class="scroll-list"></div>
+      </section>
+
+      <!-- Вкладка 3: НАСТРОЙКИ (отдельный полноэкранный раздел как в Telegram) -->
+      <section id="tabSettings" class="main-tab-pane hidden">
+        <div class="top-bar">
+          <div class="top-handle">Настройки Lume</div>
+          <button id="logoutBtn" style="background:transparent;color:#f87171;padding:6px 10px">Выйти</button>
+        </div>
+
+        <div class="scroll-list" style="padding:14px 16px 80px">
+          <!-- Карточка Lume Premium (5000 ⭐) -->
+          <div class="prem-card">
+            <div>
+              <div style="font-weight:700;color:#fde68a">⭐ Lume Premium (Навсегда)</div>
+              <div style="font-size:12px;color:#fcd34d;margin-top:2px">Цвет ника и пузырей, рамка, расшифровка ГС, скрытый онлайн друзей, безлимит историй и 100% возврат за подарки</div>
+            </div>
+            <button type="button" id="buyPremBtn" style="background:#d97706;flex-shrink:0">5 000 ⭐</button>
+          </div>
+
+          <form id="settingsForm" class="stack-form">
+            <div class="set-group-title">👤 Профиль и Музыка</div>
+            <div class="profile-hero" style="margin:6px 0">
+              <label class="avatar-upload" title="Сменить фото">
+                <img id="setAvatar" class="avatar lg" src="" alt="">
+                <span>📷</span>
+                <input type="file" id="avatarInput" accept="image/*" hidden>
+              </label>
+              <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+                <label class="banner-upload-btn">
+                  🖼️ Загрузить фото на баннер
+                  <input type="file" id="bannerInput" accept="image/*" hidden>
+                </label>
+                <select id="setBannerPreset" class="dark-select">
+                  <option value="">🎨 Или выбрать цвет баннера...</option>
+                  <option value="linear-gradient(135deg,#1e3a8a,#581c87)">🌌 Космос (Синий-Фиолетовый)</option>
+                  <option value="linear-gradient(135deg,#78350f,#b45309)">👑 Золотой закат</option>
+                  <option value="linear-gradient(135deg,#064e3b,#047857)">🌲 Изумрудный лес</option>
+                  <option value="linear-gradient(135deg,#881337,#be123c)">🌹 Рубиновый неон</option>
+                  <option value="linear-gradient(135deg,#111827,#374151)">🌑 Графит</option>
+                </select>
+              </div>
+            </div>
+
+            <label class="fld-lbl">Имя</label>
+            <input id="setNameInput" type="text" placeholder="Ваше имя" required>
+
+            <label class="fld-lbl">Ваш @username</label>
+            <input id="setUsernameInput" type="text" placeholder="например: mokeqo">
+
+            <label class="fld-lbl">О себе (основное описание)</label>
+            <input id="setBioInput" type="text" placeholder="Напишите о себе...">
+
+            <label class="fld-lbl">🎵 Музыкальный статус (рядом с аватаркой)</label>
+            <input id="setMusicTextInput" type="text" placeholder="Например: Slipknot - Snuff">
+            <label class="banner-upload-btn" style="text-align:center">
+              🎧 Прикрепить MP3/аудио трек в профиль
+              <input type="file" id="musicAudioInput" accept="audio/*" hidden>
+            </label>
+
+            <label class="fld-lbl">📢 Прикрепить мой канал в профиль</label>
+            <select id="setProfileChannelSelect" class="dark-select">
+              <option value="0">— Не показывать канал —</option>
+            </select>
+
+            <div class="set-group-title">✨ Кастомизация Lume Premium</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div>
+                <label class="fld-lbl">Эмодзи-статус</label>
+                <input id="setEmojiStatus" type="text" maxlength="4" placeholder="🔥 или 👑">
+              </div>
+              <div>
+                <label class="fld-lbl">Цвет имени</label>
+                <select id="setNameColor" class="dark-select">
+                  <option value="">Стандартный</option>
+                  <option value="#fbbf24">Золотой</option>
+                  <option value="#38bdf8">Неоново-голубой</option>
+                  <option value="#34d399">Изумрудный</option>
+                  <option value="#f472b6">Розовый неон</option>
+                </select>
+              </div>
+              <div>
+                <label class="fld-lbl">Цвет моих сообщений</label>
+                <select id="setBubbleColor" class="dark-select">
+                  <option value="">Стандартный</option>
+                  <option value="linear-gradient(135deg,#b45309,#d97706)">Золотой градиент</option>
+                  <option value="linear-gradient(135deg,#1d4ed8,#7c3aed)">Кибер-фиолетовый</option>
+                  <option value="linear-gradient(135deg,#047857,#059669)">Изумруд</option>
+                  <option value="linear-gradient(135deg,#be123c,#e11d48)">Рубин</option>
+                </select>
+              </div>
+              <div>
+                <label class="fld-lbl">Рамка аватарки</label>
+                <select id="setAvatarFrame" class="dark-select">
+                  <option value="">Без рамки</option>
+                  <option value="frame-gold">👑 Золотая корона</option>
+                  <option value="frame-neon">⚡ Неоновый импульс</option>
+                  <option value="frame-xmas">🎄 Новогодняя</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="set-group-title">🎨 Оформление и Язык</div>
+            <label class="fld-lbl">Тема оформления (сохраняется навсегда)</label>
+            <select id="setThemeSelect" class="dark-select">
+              <option value="dark">🌑 Тёмная (OLED Black)</option>
+              <option value="midnight">🌌 Полночь (Deep Blue)</option>
+              <option value="emerald">🌲 Изумруд (Dark Green)</option>
+              <option value="light">☀️ Светлая (Day Light)</option>
+            </select>
+            <label class="fld-lbl">Язык / Language</label>
+            <select id="setLangSelect" class="dark-select">
+              <option value="ru">🇷🇺 Русский</option>
+              <option value="en">🇬🇧 English</option>
+            </select>
+            <label class="chk-row">
+              <input type="checkbox" id="setGarland" checked> Трёхцветная новогодняя гирлянда сбоку
+            </label>
+
+            <div class="set-group-title">🔒 Конфиденциальность и Безопасность</div>
+            <label class="chk-row">
+              <input type="checkbox" id="setHideEmail"> Скрыть мою почту от других
+            </label>
+            <label class="chk-row">
+              <input type="checkbox" id="setHideLastSeen"> Скрыть время «был в сети» (видно только Premium)
+            </label>
+            <label id="adminInvisRow" class="chk-row hidden" style="color:#fbbf24">
+              <input type="checkbox" id="setAdminInvisible"> 👻 Полная невидимка администратора (никогда не в сети)
+            </label>
+
+            <label class="fld-lbl">Код-пароль на вход в Lume (4 цифры, пусто — выкл)</label>
+            <input id="setPinInput" type="text" maxlength="4" inputmode="numeric" placeholder="Например: 1234">
+
+            <label class="fld-lbl">Почта для входа (Email)</label>
+            <input id="setEmailInput" type="email" required>
+
+            <label class="fld-lbl">Новый пароль (оставьте пустым, если не меняете)</label>
+            <input id="setPassInput" type="password" placeholder="Минимум 6 символов">
+
+            <button type="submit" style="margin-top:8px">Сохранить все настройки</button>
+          </form>
+
+          <button type="button" id="resetSessionsBtn" style="width:100%;margin-top:12px;background:#374151">📱 Завершить все другие сессии</button>
+        </div>
+      </section>
+      <!-- Вкладка 4: ПРОФИЛЬ (оформлен точно по твоему референсу со скриншота) -->
+      <section id="tabProfile" class="main-tab-pane hidden">
+        <div class="scroll-list" style="padding-bottom:84px">
+          <div id="myHeroBanner" class="tg-profile-hero">
+            <div class="tg-hero-top">
+              <button type="button" id="openQrBtn" class="circle-glass-btn" title="QR-визитка">⊞</button>
+              <button type="button" id="openWalletFromProfBtn" class="circle-glass-btn" title="Кошелёк Stars">⭐</button>
+            </div>
+            <img id="profAvatar" class="avatar xl bordered-av" src="" alt="">
+            <div id="profNameTitle" class="prof-name" style="margin-top:10px"></div>
+            <div id="profSubStatus" class="prof-online-pill">в сети • ID: 1</div>
+
+            <div class="tg-action-row">
+              <button type="button" id="quickPhotoBtn" class="tg-act-btn"><span>📷</span>Выбрать фото</button>
+              <button type="button" id="quickEditBtn" class="tg-act-btn"><span>✏️</span>Изменить</button>
+              <button type="button" id="quickSettingsBtn" class="tg-act-btn"><span>⚙️</span>Настройки</button>
+            </div>
+
+            <div id="profMusicBar" class="music-pill hidden">
+              <span id="profMusicLabel">🎵 Без трека</span>
+              <button type="button" id="profMusicPlayBtn" class="mini-play-btn hidden">▶</button>
+            </div>
+          </div>
+
+          <div style="padding:12px 16px">
+            <!-- Прикреплённый канал пользователя -->
+            <div id="profChannelCard" class="prof-channel-card hidden">
+              <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Канал <span id="profChSubs" class="sub-pill">0 подписчиков</span></div>
+              <div style="display:flex;align-items:center;gap:10px">
+                <img id="profChAvatar" class="avatar" src="" alt="">
+                <div style="min-width:0;flex:1">
+                  <div id="profChTitle" style="font-weight:700"></div>
+                  <div id="profChLast" style="font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Строки информации как в Telegram -->
+            <div class="tg-info-list">
+              <div class="tg-info-row" id="profPhoneRow">
+                <div id="profPhoneVal" class="tg-info-val">Не привязан (купить +888 / +999)</div>
+                <div class="tg-info-lbl">Телефон</div>
+              </div>
+              <div class="tg-info-row">
+                <div id="profBioVal" class="tg-info-val">Нет описания</div>
+                <div class="tg-info-lbl">О себе</div>
+              </div>
+              <div class="tg-info-row">
+                <div id="profUsernameVal" class="tg-info-val">@не_указан</div>
+                <div class="tg-info-lbl">Имя пользователя</div>
+              </div>
+              <div class="tg-info-row" id="profRatingRow" style="cursor:pointer">
+                <div id="profRatingVal" class="tg-info-val" style="color:#fbbf24">🏆 0 очков (нажмите для кошелька)</div>
+                <div class="tg-info-lbl">Рейтинг Lume</div>
+              </div>
+            </div>
+
+            <!-- Вкладки снизу профиля -->
+            <div class="swipe-tabs" style="margin-top:14px">
+              <button type="button" class="swipe-tab active" data-prof-tab="posts">Публикации</button>
+              <button type="button" class="swipe-tab" data-prof-tab="gifts">Подарки (<span id="myGiftsCount">0</span>)</button>
+            </div>
+
+            <div id="profTabPosts">
+              <button type="button" id="addPostBtn" style="width:100%;margin:10px 0;background:#1f2937">📷 Добавить публикацию в профиль</button>
+              <input type="file" id="postPhotoInput" accept="image/*" hidden>
+              <div id="myPostsGrid" class="posts-grid"></div>
+            </div>
+
+            <div id="profTabGifts" class="hidden" style="margin-top:10px">
+              <div id="myGiftsGrid" class="gifts-grid"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Нижняя навигационная панель из 4 вкладок как в Telegram -->
+      <nav id="bottomNav" class="bottom-nav">
+        <button type="button" class="nav-btn active" data-nav="Chats">
+          <span class="nav-ico">💬<span id="navUnreadBadge" class="nav-badge hidden">0</span></span>
+          <span>Чаты</span>
+        </button>
+        <button type="button" class="nav-btn" data-nav="Contacts">
+          <span class="nav-ico">👥</span>
+          <span>Контакты</span>
+        </button>
+        <button type="button" class="nav-btn" data-nav="Settings">
+          <span class="nav-ico">⚙️</span>
+          <span>Настройки</span>
+        </button>
+        <button type="button" class="nav-btn" data-nav="Profile">
+          <span class="nav-ico"><img id="navProfAvatar" class="nav-av" src="" alt=""></span>
+          <span>Профиль</span>
+        </button>
+      </nav>
     </div>
 
-    <div class="chat-area">
-      <div id="chatHeader" class="chat-header">
+    <!-- Экран активного чата / группы / канала -->
+    <div id="chatArea" class="chat-area">
+      <div class="chat-header">
         <button type="button" id="mobileBackBtn" class="mobile-back" title="Назад">←</button>
-        <img id="chatHeaderAvatar" class="avatar sm hidden" src="" alt="">
-        <div>
-          <div id="chatHeaderTitle">Выберите чат</div>
-          <div id="chatHeaderSub" style="font-size:11px;color:var(--muted);font-weight:400"></div>
+        <div id="chatHeaderInfo" style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;cursor:pointer">
+          <img id="chatHeaderAvatar" class="avatar sm" src="" alt="">
+          <div style="min-width:0;flex:1">
+            <div id="chatHeaderTitle" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Выберите чат</div>
+            <div id="chatHeaderSub" style="font-size:11px;color:var(--muted);font-weight:400"></div>
+          </div>
         </div>
+        <button type="button" id="chatMenuBtn" class="icon-mini" title="Меню">⋮</button>
       </div>
+
+      <!-- Закреплённое сообщение сверху -->
+      <div id="pinnedMsgBanner" class="pinned-banner hidden">
+        <span>📌 <b id="pinnedMsgText">Закреплённое сообщение</b></span>
+        <button type="button" id="unpinMsgBtn" style="background:transparent;color:var(--muted);padding:2px 6px">✕</button>
+      </div>
+
       <div id="messages"></div>
-      <div id="channelReadOnly" class="readonly-bar hidden">Вы подписаны на канал (публиковать посты может только владелец)</div>
+
+      <!-- Плашка ответа (Reply) над полем ввода -->
+      <div id="replyPreviewBar" class="reply-bar hidden">
+        <div style="min-width:0;flex:1">
+          <div style="font-size:11px;color:#60a5fa;font-weight:600">Ответ для <span id="replyToAuthor"></span></div>
+          <div id="replyToText" style="font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+        </div>
+        <button type="button" id="cancelReplyBtn" style="background:transparent;color:var(--muted);padding:4px 8px">✕</button>
+      </div>
+
+      <!-- Панель стикеров -->
+      <div id="stickerDrawer" class="sticker-drawer hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:12px;font-weight:600">🐻 Стикеры Lume</span>
+          <label class="banner-upload-btn" style="padding:4px 8px;font-size:11px">
+            + Создать стикер из фото
+            <input type="file" id="createStickerInput" accept="image/*" hidden>
+          </label>
+        </div>
+        <div id="stickersGrid" class="stickers-grid"></div>
+      </div>
+
+      <div id="channelReadOnly" class="readonly-bar hidden">Вы подписаны на канал (публиковать посты может только владелец и админы)</div>
+
       <form id="sendForm">
+        <button type="button" id="toggleStickersBtn" class="icon-btn" title="Стикеры">🐻</button>
         <button type="button" id="openGiftBtn" class="icon-btn" title="Подарок">🎁</button>
+        <button type="button" id="openPollBtn" class="icon-btn hidden" title="Создать опрос">📊</button>
         <button type="button" id="attachPhotoBtn" class="icon-btn" title="Фото">📎</button>
         <input type="file" id="photoInput" accept="image/*" hidden>
         <input id="msgInput" type="text" placeholder="Сообщение..." autocomplete="off">
-        <button type="button" id="voiceBtn" class="icon-btn" title="Голосовое">🎤</button>
+        <button type="button" id="oneTimeVoiceBtn" class="icon-btn" title="Одноразовое голосовое 🔥1">1️⃣</button>
+        <button type="button" id="voiceBtn" class="icon-btn" title="Голосовое (свайп влево — отмена)">🎤</button>
         <button type="submit">➤</button>
       </form>
     </div>
   </div>
-  <!-- Мой профиль с баннером под аватаркой и свайпом вкладок -->
-  <div id="myProfileModal" class="modal hidden">
-    <div id="myProfileCard" class="modal-card" style="padding:0;overflow:hidden">
-      <div id="profHeroBanner" class="hero-banner-wrap">
-        <button class="close-btn banner-close" data-close="myProfileModal">✕</button>
-        <div class="profile-hero">
-          <img id="profAvatar" class="avatar lg bordered-av" src="" alt="">
-          <div>
-            <div id="profNameTitle" class="prof-name"></div>
-            <div id="profUsernames" class="prof-tags"></div>
-            <div class="stars-badge">Баланс: <b id="profStars">0</b> ⭐</div>
-          </div>
+  <!-- Карточка подарка при нажатии (точно как на твоём скриншоте) -->
+  <div id="giftDetailModal" class="modal hidden">
+    <div class="modal-card" style="text-align:center">
+      <div class="modal-top">
+        <span style="font-size:12px;color:var(--muted)" id="gdNumberTag">#1</span>
+        <button class="close-btn" data-close="giftDetailModal">✕</button>
+      </div>
+      <div id="gdEmoji" style="font-size:74px;margin:6px 0">🧸</div>
+      <h2 id="gdTitle" style="font-size:20px">Подарок Вам</h2>
+      <p id="gdSubHint" style="font-size:12px;color:var(--muted);margin-top:4px">Вы можете скрыть или продать этот подарок.</p>
+
+      <div class="tg-detail-table">
+        <div class="tg-detail-row">
+          <span class="dt-lbl">От</span>
+          <span id="gdSenderCell" class="dt-val" style="display:flex;align-items:center;gap:6px;cursor:pointer"></span>
+        </div>
+        <div class="tg-detail-row">
+          <span class="dt-lbl">Дата</span>
+          <span id="gdDateCell" class="dt-val"></span>
+        </div>
+        <div class="tg-detail-row">
+          <span class="dt-lbl">Стоимость</span>
+          <span id="gdPriceCell" class="dt-val" style="color:#fbbf24">⭐ 15</span>
+        </div>
+        <div id="gdCaptionRow" class="tg-detail-row hidden">
+          <span class="dt-lbl">Подпись</span>
+          <span id="gdCaptionCell" class="dt-val"></span>
         </div>
       </div>
 
-      <div style="padding:14px 18px 18px">
-        <div class="swipe-tabs">
-          <button type="button" class="swipe-tab active" data-my-tab="gifts">🎁 Подарки (<span id="myGiftsCount">0</span>)</button>
-          <button type="button" class="swipe-tab" data-my-tab="info">ℹ️ Информация</button>
-        </div>
-        <div style="font-size:11px;color:var(--muted);text-align:center;margin-bottom:10px">Свайпните влево или вправо для переключения</div>
+      <div id="gdOwnerActions" class="stack-form" style="margin-top:12px">
+        <button type="button" id="gdToggleHideBtn" style="background:#1f2937">👁️ Скрыть из профиля</button>
+        <button type="button" id="gdSellBtn" style="background:#b45309">⭐ Продать за +15</button>
+      </div>
+      <button type="button" data-close="giftDetailModal" style="width:100%;margin-top:10px">OK</button>
+    </div>
+  </div>
 
-        <div id="myTabGifts">
-          <div id="myGiftsGrid" class="gifts-grid"></div>
+  <!-- Магазин подарков (с анонимной отправкой и поздравлением) -->
+  <div id="giftModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-top">
+        <h3>🎁 Отправить подарок</h3>
+        <button class="close-btn" data-close="giftModal">✕</button>
+      </div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:8px">
+        Ваш баланс: <b id="giftModalStars" style="color:#fbbf24">0</b> ⭐
+      </div>
+      <input id="giftCaptionInput" type="text" placeholder="Текст поздравления (необязательно)..." style="width:100%;margin-bottom:8px">
+      <label class="chk-row" style="margin-bottom:10px">
+        <input type="checkbox" id="giftAnonCheck"> 🕵️ Отправить анонимно (скрыть имя и фото)
+      </label>
+      <div id="shopGrid" class="shop-grid"></div>
+    </div>
+  </div>
+
+  <!-- Биржа анонимных номеров (+888 и +999) -->
+  <div id="numberMarketModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-top">
+        <h3>📞 Биржа номеров Lume</h3>
+        <button class="close-btn" data-close="numberMarketModal">✕</button>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:10px">
+        Чем красивее комбинация цифр (одинаковые, парные, нули), тем выше стоимость. По номеру можно входить в аккаунт!
+      </p>
+      <div style="display:flex;gap:6px">
+        <select id="numPrefixSelect" class="dark-select" style="width:95px">
+          <option value="+888">+888</option>
+          <option value="+999">+999</option>
+        </select>
+        <input id="numDigitsInput" type="text" maxlength="8" inputmode="numeric" placeholder="8 цифр (напр. 77778888)" style="flex:1">
+      </div>
+      <button type="button" id="checkNumBtn" style="width:100%;margin-top:8px;background:#374151">Узнать цену номера</button>
+      <div id="numQuoteBox" class="info-box hidden" style="margin-top:10px;text-align:center">
+        <div id="numFormattedText" style="font-size:18px;font-weight:700;color:#38bdf8"></div>
+        <div style="font-size:13px;margin:4px 0 8px">Стоимость: <b id="numPriceText" style="color:#fbbf24"></b> ⭐</div>
+        <button type="button" id="buyNumBtn" style="width:100%;background:#059669">Купить и привязать номер</button>
+      </div>
+    </div>
+  </div>
+  <!-- Кошелёк Lume Stars ⭐ (Траты, Мини-игры, Квесты, Промокоды, Топы лидеров) -->
+  <div id="walletModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-top">
+        <h3>⭐ Кошелёк Lume Stars</h3>
+        <button class="close-btn" data-close="walletModal">✕</button>
+      </div>
+      <div style="text-align:center;padding:8px 0">
+        <div style="font-size:28px;font-weight:800;color:#fbbf24"><span id="walBalance">0</span> ⭐</div>
+        <div style="font-size:12px;color:var(--muted)">Рейтинг трат: <b id="walSpent">0</b> 🏆 • Заработано: <b id="walEarned">0</b> ⭐</div>
+      </div>
+
+      <div class="swipe-tabs" style="margin:10px 0">
+        <button type="button" class="swipe-tab active" data-wal-tab="earn">🎰 Игры и Бонусы</button>
+        <button type="button" class="swipe-tab" data-wal-tab="logs">📜 История</button>
+        <button type="button" class="swipe-tab" data-wal-tab="tops">🏆 Топы</button>
+      </div>
+
+      <!-- Вкладка 1: Фарм звёзд, Рулетка, Кости, Квесты и Промокод -->
+      <div id="walTabEarn" class="stack-form">
+        <button type="button" id="dailyBonusBtn" style="background:#059669">🎄 Забрать бонус каждые 12ч (+50 / +100 ⭐)</button>
+
+        <div class="info-box">
+          <div style="font-weight:600;font-size:13px;margin-bottom:4px">📋 Ежедневные задания</div>
+          <div style="font-size:12px;color:var(--muted)">• Сообщения: <b id="qMsgsVal">0</b> / 10</div>
+          <div style="font-size:12px;color:var(--muted)">• Реакции: <b id="qReactsVal">0</b> / 5</div>
+          <button type="button" id="claimQuestBtn" style="width:100%;margin-top:6px;background:#2563eb;padding:7px">Забрать награду за задания</button>
         </div>
 
-        <div id="myTabInfo" class="hidden">
-          <div class="info-box">
-            <div class="fld-lbl">О себе</div>
-            <div id="profBioText" style="font-size:14px;margin-top:2px">Нет описания</div>
-            <div class="fld-lbl" style="margin-top:10px">Почта (Email)</div>
-            <div id="profEmailText" style="font-size:14px;margin-top:2px"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div class="info-box" style="text-align:center">
+            <div style="font-size:24px">🎰</div>
+            <div style="font-size:13px;font-weight:600">Рулетка удачи</div>
+            <div style="font-size:11px;color:var(--muted);margin:2px 0 6px">Шанс до 500 ⭐</div>
+            <button type="button" id="spinRouletteBtn" style="width:100%;padding:7px">Крутить (25 ⭐)</button>
           </div>
-          <button id="goSettingsFromProf" style="width:100%;margin-top:12px;background:#1f2937">⚙️ Настройки профиля и приватности</button>
+          <div class="info-box" style="text-align:center">
+            <div style="font-size:24px">🎲</div>
+            <div style="font-size:13px;font-weight:600">Кубик (4–6 = x2)</div>
+            <input id="diceBetInput" type="number" value="25" min="10" max="1000" style="width:100%;padding:4px 8px;margin:4px 0;text-align:center">
+            <button type="button" id="rollDiceBtn" style="width:100%;padding:7px">Бросить</button>
+          </div>
         </div>
+
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <input id="promoInput" type="text" placeholder="Введите промокод..." style="flex:1">
+          <button type="button" id="redeemPromoBtn">Активировать</button>
+        </div>
+      </div>
+
+      <!-- Вкладка 2: История трат и поступлений -->
+      <div id="walTabLogs" class="hidden">
+        <div id="walLogsList" style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+
+      <!-- Вкладка 3: 3 таблицы лидеров -->
+      <div id="walTabTops" class="hidden">
+        <div class="swipe-tabs" style="margin-bottom:8px">
+          <button type="button" class="swipe-tab active" data-top-kind="spent">🏆 Траты</button>
+          <button type="button" class="swipe-tab" data-top-kind="earned">💰 Заработок</button>
+          <button type="button" class="swipe-tab" data-top-kind="online">⏱️ Онлайн</button>
+        </div>
+        <div id="walTopList" style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:6px"></div>
+      </div>
+    </div>
+  </div>
+  <!-- Профиль собеседника -->
+  <div id="peerProfileModal" class="modal hidden">
+    <div class="modal-card" style="padding:0;overflow:hidden">
+      <div id="peerHeroBanner" class="tg-profile-hero" style="padding-top:24px">
+        <button class="close-btn banner-close" data-close="peerProfileModal">✕</button>
+        <img id="peerAvatar" class="avatar xl bordered-av" src="" alt="">
+        <div id="peerNameTitle" class="prof-name" style="margin-top:8px"></div>
+        <div id="peerSubStatus" class="prof-online-pill">в сети • ID: 0</div>
+        <div id="peerMusicBar" class="music-pill hidden">
+          <span id="peerMusicLabel"></span>
+          <button type="button" id="peerMusicPlayBtn" class="mini-play-btn hidden">▶</button>
+        </div>
+      </div>
+
+      <div style="padding:12px 16px 18px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+          <button type="button" id="peerGiftBtn" style="background:#7c3aed">🎁 Подарок</button>
+          <button type="button" id="peerTransferBtn" style="background:#d97706">💸 Перевести ⭐</button>
+        </div>
+
+        <div id="peerChannelCard" class="prof-channel-card hidden">
+          <div style="font-size:11px;color:var(--muted)">Канал пользователя</div>
+          <div id="peerChTitle" style="font-weight:700;margin-top:2px"></div>
+        </div>
+
+        <div class="tg-info-list">
+          <div id="peerPhoneRow" class="tg-info-row hidden">
+            <div id="peerPhoneVal" class="tg-info-val"></div>
+            <div class="tg-info-lbl">Телефон</div>
+          </div>
+          <div class="tg-info-row">
+            <div id="peerBio" class="tg-info-val">Нет описания</div>
+            <div class="tg-info-lbl">О себе</div>
+          </div>
+          <div class="tg-info-row">
+            <div id="peerUsernames" class="tg-info-val"></div>
+            <div class="tg-info-lbl">Имя пользователя</div>
+          </div>
+          <div class="tg-info-row">
+            <div id="peerRatingVal" class="tg-info-val" style="color:#fbbf24"></div>
+            <div class="tg-info-lbl">Рейтинг Lume</div>
+          </div>
+        </div>
+
+        <div class="section-title">Подарки (<span id="peerGiftsCount">0</span>)</div>
+        <div id="peerGiftsGrid" class="gifts-grid"></div>
       </div>
     </div>
   </div>
 
-  <!-- Отдельное окно Админ-панели (по кнопке 👑 в шапке) -->
+  <!-- Профиль группы или канала (Участники, Админы, Подарки каналу, Настройки для создателя) -->
+  <div id="roomProfileModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-top">
+        <h3 id="roomProfHeader">Профиль канала</h3>
+        <button class="close-btn" data-close="roomProfileModal">✕</button>
+      </div>
+      <div class="profile-hero">
+        <img id="roomProfAvatar" class="avatar lg" src="" alt="">
+        <div style="min-width:0;flex:1">
+          <div id="roomProfTitle" style="font-size:18px;font-weight:700"></div>
+          <div id="roomProfSub" style="font-size:12px;color:var(--muted)"></div>
+          <div id="roomInviteLink" style="font-size:12px;color:#60a5fa;margin-top:4px;cursor:pointer">🔗 Скопировать ссылку</div>
+        </div>
+      </div>
+      <div id="roomProfBio" style="font-size:13px;color:var(--muted);margin:10px 0"></div>
+
+      <button type="button" id="roomGiftBtn" style="width:100%;background:#7c3aed;margin-bottom:10px">🎁 Подарить подарок каналу/группе</button>
+
+      <!-- Настройки для создателя комнаты -->
+      <div id="roomOwnerBox" class="info-box hidden" style="margin-bottom:12px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px">⚙️ Управление (Создатель)</div>
+        <div class="stack-form">
+          <label class="banner-upload-btn" style="text-align:center">
+            📷 Загрузить аватарку канала/группы
+            <input type="file" id="roomAvatarInput" accept="image/*" hidden>
+          </label>
+          <input id="roomEditTitle" type="text" placeholder="Название">
+          <input id="roomEditBio" type="text" placeholder="Описание канала или группы">
+          <button type="button" id="saveRoomBtn">Сохранить изменения</button>
+        </div>
+      </div>
+
+      <div class="section-title">Подарки канала (<span id="roomGiftsCount">0</span>)</div>
+      <div id="roomGiftsGrid" class="gifts-grid"></div>
+
+      <div class="section-title">Участники (<span id="roomMembersCount">0</span>)</div>
+      <div id="roomMembersList" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
+  </div>
+
+  <!-- Отдельная Админ-панель 👑 -->
   <div id="adminModal" class="modal hidden">
     <div class="modal-card">
       <div class="modal-top">
-        <h3 style="color:#fbbf24">👑 Панель администратора</h3>
+        <h3 style="color:#fbbf24">👑 Панель администратора Lume</h3>
         <button class="close-btn" data-close="adminModal">✕</button>
       </div>
+
+      <div class="swipe-tabs" style="margin-bottom:10px">
+        <button type="button" class="swipe-tab active" data-adm-tab="grant">🎁 Выдача</button>
+        <button type="button" class="swipe-tab" data-adm-tab="bans">🚫 Баны / Промо</button>
+        <button type="button" class="swipe-tab" data-adm-tab="reports">⚠️ Жалобы</button>
+      </div>
+
       <form id="adminForm" class="stack-form">
-        <label class="fld-lbl">Кому выдать (@username, Email или +888...)</label>
-        <input id="admQuery" type="text" placeholder="Например: @wulcime или user@mail.ru" required>
-        <label class="fld-lbl">Начислить звёзд ⭐</label>
-        <input id="admStars" type="number" placeholder="Например: 5000">
-        <label class="fld-lbl">Выдать обычный @username</label>
-        <input id="admUsername" type="text" placeholder="Без символа @">
-        <label class="fld-lbl">Выдать редкий NFT @username</label>
-        <input id="admNft" type="text" placeholder="Без символа @">
-        <label class="fld-lbl">Выдать анонимный номер (+888... или +999...)</label>
-        <input id="admAnonNumber" type="text" placeholder="+888 1234 5678 или +999 123 456">
-        <label class="fld-lbl">Выдать эксклюзивный подарок (с личным #ID)</label>
+        <input id="admQuery" type="text" placeholder="ID, @username или +888..." required>
+        <input id="admStars" type="number" placeholder="Начислить звёзд ⭐ (напр. 5000)">
+        <input id="admUsername" type="text" placeholder="Выдать @username (без @)">
+        <input id="admNft" type="text" placeholder="Выдать редкий NFT @username (без @)">
+        <input id="admAnonNumber" type="text" placeholder="Выдать номер (+888 1234 5678)">
         <select id="admGiftSelect" class="dark-select">
-          <option value="">— Не выдавать подарок —</option>
+          <option value="">— Выдать эксклюзивный подарок —</option>
           <option value="crystal">💎 Редкий Кристалл (Admin)</option>
           <option value="dragon">🐉 Огненный Дракон (Admin)</option>
-          <option value="rocket">🚀 Ракета MailGram (Admin)</option>
+          <option value="rocket">🚀 Ракета Lume (Admin)</option>
         </select>
-        <label class="chk-row" style="margin-top:4px">
-          <input type="checkbox" id="admVerified"> Синяя галочка верификации ✓
-        </label>
-        <label class="chk-row">
-          <input type="checkbox" id="admPremium"> Выдать MailGram Premium ⭐
-        </label>
-        <button type="submit" style="background:#d97706;margin-top:6px">Выдать пользователю</button>
+        <label class="chk-row"><input type="checkbox" id="admVerified"> Синяя галочка верификации ✓</label>
+        <label class="chk-row"><input type="checkbox" id="admPremium"> Выдать вечный Lume Premium ⭐</label>
+        <button type="submit" style="background:#d97706">Применить права / выдать</button>
       </form>
-    </div>
-  </div>
-  <!-- Настройки аккаунта (Язык, Почта, Скрытие почты, Пароль, Баннер, Темы, Премиум) -->
-  <div id="settingsModal" class="modal hidden">
-    <div class="modal-card">
-      <div class="modal-top">
-        <h3>⚙️ Настройки аккаунта</h3>
-        <button class="close-btn" data-close="settingsModal">✕</button>
-      </div>
 
-      <div id="premPromoBox" class="prem-card">
-        <div>
-          <div style="font-weight:700;color:#fde68a">⭐ MailGram Premium</div>
-          <div style="font-size:12px;color:#fcd34d;margin-top:2px">Золотая звезда и продажа подарков без комиссии (100%)</div>
+      <div id="admTabBans" class="hidden stack-form">
+        <div class="info-box stack-form">
+          <div style="font-size:12px;font-weight:600">🚫 Блокировка пользователя</div>
+          <input id="banUserQuery" type="text" placeholder="ID, @username или +888...">
+          <button type="button" id="banUserBtn" style="background:#dc2626">Заблокировать / Разблокировать юзера</button>
         </div>
-        <button type="button" id="buyPremBtn" style="background:#d97706;flex-shrink:0">Купить 500 ⭐</button>
-      </div>
-
-      <div class="profile-hero" style="margin:12px 0">
-        <label class="avatar-upload" title="Поменять аватарку">
-          <img id="setAvatar" class="avatar lg" src="" alt="">
-          <span>📷</span>
-          <input type="file" id="avatarInput" accept="image/*" hidden>
-        </label>
-        <div style="flex:1">
-          <label class="banner-upload-btn">
-            🖼️ Загрузить баннер (под аватарку)
-            <input type="file" id="bannerInput" accept="image/*" hidden>
-          </label>
-          <div style="font-size:11px;color:var(--muted);margin-top:4px">Отображается фоном шапки профиля</div>
+        <div class="info-box stack-form">
+          <div style="font-size:12px;font-weight:600">🚫 Блокировка канала / группы</div>
+          <input id="banChannelQuery" type="text" placeholder="ID или @username канала">
+          <button type="button" id="banChannelBtn" style="background:#dc2626">Заблокировать / Разблокировать канал</button>
+        </div>
+        <div class="info-box stack-form">
+          <div style="font-size:12px;font-weight:600">🎟️ Создать промокод на звёзды</div>
+          <input id="newPromoCode" type="text" placeholder="Код (напр. LUME2026)">
+          <div style="display:flex;gap:6px">
+            <input id="newPromoReward" type="number" placeholder="Награда ⭐" style="flex:1">
+            <input id="newPromoUses" type="number" placeholder="Кол-во активаций" style="flex:1">
+          </div>
+          <button type="button" id="createPromoBtn" style="background:#059669">Создать промокод</button>
         </div>
       </div>
 
-      <form id="settingsForm" class="stack-form">
-        <label class="fld-lbl">Язык интерфейса / Language</label>
-        <select id="setLangSelect" class="dark-select">
-          <option value="ru">🇷🇺 Русский</option>
-          <option value="en">🇬🇧 English</option>
-        </select>
-
-        <label class="fld-lbl">Тема оформления</label>
-        <select id="setThemeSelect" class="dark-select">
-          <option value="dark">🌑 Тёмная (OLED Black)</option>
-          <option value="midnight">🌌 Полночь (Deep Blue)</option>
-          <option value="emerald">🌲 Изумруд (Dark Green)</option>
-          <option value="light">☀️ Светлая (Day Light)</option>
-        </select>
-
-        <label class="fld-lbl">Имя профиля</label>
-        <input id="setNameInput" type="text" placeholder="Ваше имя" required>
-
-        <label class="fld-lbl">О себе (статус)</label>
-        <input id="setBioInput" type="text" placeholder="Напишите пару слов о себе...">
-
-        <label class="fld-lbl">Ваш @username</label>
-        <input id="setUsernameInput" type="text" placeholder="например: alex_cool">
-
-        <label class="fld-lbl">Почта (Email)</label>
-        <input id="setEmailInput" type="email" placeholder="Ваш Email" required>
-
-        <label class="chk-row" style="margin:4px 0">
-          <input type="checkbox" id="setHideEmail"> Скрыть мою почту от других пользователей
-        </label>
-
-        <label class="fld-lbl">Новый пароль (оставьте пустым, если не меняете)</label>
-        <input id="setPassInput" type="password" placeholder="Новый пароль (от 6 символов)">
-
-        <button type="submit">Сохранить настройки</button>
-      </form>
+      <div id="admTabReports" class="hidden">
+        <div id="reportsList" style="display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto"></div>
+      </div>
     </div>
   </div>
-
   <!-- Создание группы или канала -->
   <div id="createRoomModal" class="modal hidden">
     <div class="modal-card">
@@ -228,21 +705,58 @@
         <button class="close-btn" data-close="createRoomModal">✕</button>
       </div>
       <form id="createRoomForm" class="stack-form">
-        <label class="fld-lbl">Тип</label>
         <select id="roomTypeSelect" class="dark-select">
           <option value="group">👥 Группа (пишут все участники)</option>
-          <option value="channel">📢 Канал (посты публикуете только вы)</option>
+          <option value="channel">📢 Канал (посты публикуют владелец и админы)</option>
         </select>
-        <label class="fld-lbl">Название</label>
-        <input id="roomTitleInput" type="text" placeholder="Название группы или канала" required>
-        <label class="fld-lbl">Публичный @username (для поиска)</label>
-        <input id="roomUsernameInput" type="text" placeholder="например: news_channel">
+        <input id="roomTitleInput" type="text" placeholder="Название" required>
+        <input id="roomUsernameInput" type="text" placeholder="Публичный @username (необязательно)">
         <button type="submit">Создать</button>
       </form>
     </div>
   </div>
 
-  <!-- Редактор фото перед отправкой -->
+  <!-- Создание мини-истории (6, 12 или 24 часа) -->
+  <div id="createStoryModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-top">
+        <h3>📸 Новая история</h3>
+        <button class="close-btn" data-close="createStoryModal">✕</button>
+      </div>
+      <form id="createStoryForm" class="stack-form">
+        <label class="banner-upload-btn" style="text-align:center">
+          🖼️ Выбрать фото для истории
+          <input type="file" id="storyFileInput" accept="image/*" hidden>
+        </label>
+        <input id="storyCaptionInput" type="text" placeholder="Подпись к истории...">
+        <label class="fld-lbl">Время жизни истории</label>
+        <select id="storyHoursSelect" class="dark-select">
+          <option value="6">⏱️ 6 часов</option>
+          <option value="12">⏱️ 12 часов</option>
+          <option value="24" selected>⏱️ 24 часа</option>
+        </select>
+        <button type="submit">Опубликовать историю</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Просмотр истории на весь экран -->
+  <div id="viewStoryModal" class="modal hidden" style="background:rgba(0,0,0,0.95)">
+    <div class="modal-card" style="max-width:380px;text-align:center;background:#0a0a0a">
+      <div class="modal-top">
+        <div style="display:flex;align-items:center;gap:8px">
+          <img id="vsAvatar" class="avatar sm" src="" alt="">
+          <b id="vsAuthor"></b>
+        </div>
+        <button class="close-btn" data-close="viewStoryModal">✕</button>
+      </div>
+      <img id="vsImage" src="" alt="" style="max-width:100%;max-height:380px;border-radius:12px;margin:8px 0">
+      <div id="vsCaption" style="font-size:14px;margin-bottom:6px"></div>
+      <div style="font-size:12px;color:var(--muted)">👁️ Просмотров: <span id="vsViews">0</span></div>
+    </div>
+  </div>
+
+  <!-- Редактор фото перед отправкой (Обрезка, Рисование, Текст, Одноразовое фото 🔥1) -->
   <div id="photoEditorModal" class="modal hidden">
     <div class="modal-card">
       <div class="modal-top">
@@ -250,60 +764,86 @@
         <button class="close-btn" data-close="photoEditorModal">✕</button>
       </div>
       <div style="text-align:center;background:#000;border-radius:10px;overflow:hidden">
-        <canvas id="photoCanvas" style="max-width:100%;max-height:300px;touch-action:none;cursor:crosshair"></canvas>
+        <canvas id="photoCanvas" style="max-width:100%;max-height:280px;touch-action:none;cursor:crosshair"></canvas>
       </div>
-      <div style="display:flex;gap:6px;margin-top:10px;align-items:center;flex-wrap:wrap">
-        <input type="color" id="drawColor" value="#ef4444" style="width:38px;height:36px;padding:2px;border-radius:8px">
-        <input type="text" id="photoCaptionInput" placeholder="Надпись на фото..." style="flex:1;min-width:120px">
-        <button type="button" id="addTextBtn" style="background:#374151">Текст</button>
-        <button type="button" id="resetPhotoBtn" style="background:#374151">Сброс</button>
+      <div style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap">
+        <input type="color" id="drawColor" value="#ef4444" style="width:36px;height:36px;padding:2px;border-radius:8px">
+        <input type="text" id="photoCaptionInput" placeholder="Надпись..." style="flex:1;min-width:100px">
+        <button type="button" id="addTextBtn" style="background:#374151;padding:8px 10px">Текст</button>
+        <button type="button" id="cropPhotoBtn" style="background:#374151;padding:8px 10px" title="Обрезать лишнее по краям">✂️ Обрезать</button>
+        <button type="button" id="resetPhotoBtn" style="background:#374151;padding:8px 10px">Сброс</button>
       </div>
-      <button type="button" id="sendEditedPhotoBtn" style="width:100%;margin-top:10px;background:#2563eb">➤ Отправить фото</button>
+      <label class="chk-row" style="margin-top:8px">
+        <input type="checkbox" id="oneTimePhotoCheck"> 🔥 Одноразовое фото (исчезнет после просмотра)
+      </label>
+      <button type="button" id="sendEditedPhotoBtn" style="width:100%;margin-top:8px;background:#2563eb">➤ Отправить фото</button>
     </div>
   </div>
 
-  <!-- Профиль собеседника с баннером под аватаркой -->
-  <div id="peerProfileModal" class="modal hidden">
-    <div class="modal-card" style="padding:0;overflow:hidden">
-      <div id="peerHeroBanner" class="hero-banner-wrap">
-        <button class="close-btn banner-close" data-close="peerProfileModal">✕</button>
-        <div class="profile-hero">
-          <img id="peerAvatar" class="avatar lg bordered-av" src="" alt="">
-          <div>
-            <div id="peerNameTitle" class="prof-name"></div>
-            <div id="peerUsernames" class="prof-tags"></div>
-          </div>
-        </div>
+  <!-- Просмотр одноразового фото -->
+  <div id="oneTimeViewModal" class="modal hidden" style="background:rgba(0,0,0,0.96)">
+    <div class="modal-card" style="text-align:center">
+      <div class="modal-top">
+        <span style="color:#f59e0b;font-size:13px">🔥 Одноразовое фото (после закрытия удалится)</span>
+        <button class="close-btn" data-close="oneTimeViewModal">✕</button>
       </div>
-      <div style="padding:14px 18px 18px">
-        <div id="peerBio" style="font-size:13px;color:var(--muted)"></div>
-        <div id="peerEmailBox" style="font-size:12px;color:#60a5fa;margin-top:4px"></div>
-        <button id="peerGiftBtn" style="width:100%;margin-top:12px;background:#7c3aed">🎁 Подарить подарок</button>
-        <div class="section-title">Подарки пользователя (<span id="peerGiftsCount">0</span>)</div>
-        <div id="peerGiftsGrid" class="gifts-grid"></div>
-      </div>
+      <img id="oneTimeImg" src="" alt="" style="max-width:100%;max-height:420px;border-radius:12px">
     </div>
   </div>
 
-  <!-- Магазин подарков -->
-  <div id="giftModal" class="modal hidden">
+  <!-- Создание опроса в группе/канале -->
+  <div id="pollModal" class="modal hidden">
     <div class="modal-card">
       <div class="modal-top">
-        <h3>🎁 Выберите подарок</h3>
-        <button class="close-btn" data-close="giftModal">✕</button>
+        <h3>📊 Создать опрос</h3>
+        <button class="close-btn" data-close="pollModal">✕</button>
       </div>
-      <div style="font-size:13px;color:var(--muted);margin-bottom:10px">
-        Ваш баланс: <b id="giftModalStars" style="color:#fbbf24">0</b> ⭐
-      </div>
-      <div id="shopGrid" class="shop-grid"></div>
+      <form id="pollForm" class="stack-form">
+        <input id="pollQuestion" type="text" placeholder="Вопрос опроса..." required>
+        <input class="poll-opt-in" type="text" placeholder="Вариант 1" required>
+        <input class="poll-opt-in" type="text" placeholder="Вариант 2" required>
+        <input class="poll-opt-in" type="text" placeholder="Вариант 3 (необязательно)">
+        <input class="poll-opt-in" type="text" placeholder="Вариант 4 (необязательно)">
+        <button type="submit">Опубликовать опрос</button>
+      </form>
     </div>
   </div>
 
-  <!-- Действия с сообщением -->
-  <div id="msgActionModal" class="modal hidden">
+  <!-- Меню ⋮ активного чата / группы / канала -->
+  <div id="chatMenuModal" class="modal hidden">
     <div class="modal-card" style="max-width:320px">
       <div class="modal-top">
-        <h3>Действия с сообщением</h3>
+        <h3>Действия с чатом</h3>
+        <button class="close-btn" data-close="chatMenuModal">✕</button>
+      </div>
+      <div class="stack-form">
+        <button type="button" id="cmPinChatBtn" style="background:#1f2937">📌 Закрепить / Открепить чат</button>
+        <button type="button" id="cmHideChatBtn" style="background:#1f2937">🔐 Скрыть в секретную папку</button>
+        <button type="button" id="cmInviteBtn" style="background:#1f2937">🔗 Скопировать ссылку / @username</button>
+        <button type="button" id="cmBlockBtn" style="background:#991b1b">🚫 Заблокировать / Разблокировать</button>
+        <button type="button" id="cmReportBtn" style="background:#78350f">⚠️ Пожаловаться администратору</button>
+        <button type="button" id="cmClearBtn" style="background:#374151">🧹 Очистить историю</button>
+        <button type="button" id="cmLeaveBtn" style="background:#dc2626">🚪 Покинуть группу / канал</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Пересылка сообщения (Forward) -->
+  <div id="forwardModal" class="modal hidden">
+    <div class="modal-card" style="max-width:340px">
+      <div class="modal-top">
+        <h3>↪️ Переслать в чат...</h3>
+        <button class="close-btn" data-close="forwardModal">✕</button>
+      </div>
+      <div id="forwardChatsList" style="display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto"></div>
+    </div>
+  </div>
+
+  <!-- Действия с сообщением (Реакции, Ответить, Переслать, Закрепить, Донат ⭐, Редактировать, Удалить) -->
+  <div id="msgActionModal" class="modal hidden">
+    <div class="modal-card" style="max-width:330px">
+      <div class="modal-top">
+        <h3>Сообщение</h3>
         <button class="close-btn" data-close="msgActionModal">✕</button>
       </div>
       <div id="reactPicker" class="react-picker">
@@ -314,7 +854,11 @@
         <button type="button" data-react="😮">😮</button>
         <button type="button" data-react="😢">😢</button>
       </div>
-      <div id="ownerMsgBtns" class="stack-form" style="margin-top:12px">
+      <div class="stack-form" style="margin-top:12px">
+        <button type="button" id="replyMsgBtn" style="background:#1f2937">↩️ Ответить</button>
+        <button type="button" id="forwardMsgBtn" style="background:#1f2937">↪️ Переслать</button>
+        <button type="button" id="pinMsgBtn" style="background:#1f2937">📌 Закрепить в шапке</button>
+        <button type="button" id="donatePostBtn" class="hidden" style="background:#b45309">⭐ Поддержать пост (Донат)</button>
         <button type="button" id="editMsgBtn" style="background:#2563eb">✏️ Редактировать текст</button>
         <button type="button" id="deleteMsgBtn" style="background:#dc2626">🗑️ Удалить сообщение</button>
       </div>
