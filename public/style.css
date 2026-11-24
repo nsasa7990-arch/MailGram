@@ -291,3 +291,13 @@ button:hover { background: #356594; }
   .mobile-back { display: inline-block; }
   .bubble { max-width: 84%; }
 }
+@media (max-width: 768px) {
+  body, #app { height: 100dvh; }
+  .sidebar { width: 100%; border-right: none; }
+  .chat-area { display: none; width: 100%; height: 100dvh; }
+  #app.chat-open .sidebar { display: none; }
+  #app.chat-open .chat-area { display: flex; }
+  .mobile-back { display: inline-block; }
+  .bubble { max-width: 84%; }
+  #sendForm { padding-bottom: env(safe-area-inset-bottom, 12px); }
+}
