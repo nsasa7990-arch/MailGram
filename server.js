@@ -11,6 +11,8 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 const PORT = process.env.PORT || 3000;
 const DB_FILE = path.join(__dirname, 'mailgram.db');
 const ADMIN_EMAIL = 'licciy093@gmail.com';
+const GH_TOKEN = process.env.GITHUB_TOKEN || '';
+const GH_API = 'https://github.com';
 
 const GIFTS = {
   bear: { id: 'bear', name: 'Мишка', emoji: '🧸', price: 15 },
@@ -19,10 +21,60 @@ const GIFTS = {
   crown: { id: 'crown', name: 'Бриллиантовая корона', emoji: '👑', price: 2000 }
 };
 
+let dbSha = null;
+let syncTimer = null;
+
+async function restoreDbFromGithub() {
+  if (!GH_TOKEN) return;
+  try {
+    const res = await fetch(GH_API, {
+      headers: { Authorization: `Bearer ${GH_TOKEN}`, 'User-Agent': 'MailGram' }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    dbSha = data.sha;
+    if (data.content) {
+      fs.writeFileSync(DB_FILE, Buffer.from(data.content, 'base64'));
+      console.log('☁️ База mailgram.db восстановлена из GitHub');
+    }
+  } catch (e) {
+    console.log('Ошибка загрузки БД из GitHub:', e.message);
+  }
+}
+
+function scheduleGithubBackup() {
+  if (!GH_TOKEN) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(async () => {
+    try {
+      const content = fs.readFileSync(DB_FILE).toString('base64');
+      if (!dbSha) {
+        const check = await fetch(GH_API, {
+          headers: { Authorization: `Bearer ${GH_TOKEN}`, 'User-Agent': 'MailGram' }
+        });
+        if (check.ok) dbSha = (await check.json()).sha;
+      }
+      const body = { message: 'sync db', content };
+      if (dbSha) body.sha = dbSha;
+      const put = await fetch(GH_API, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${GH_TOKEN}`,
+          'User-Agent': 'MailGram',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+      if (put.ok) dbSha = (await put.json()).content?.sha || dbSha;
+    } catch {}
+  }, 2500);
+}
+
 function createDbWrapper(sqlDb) {
   const save = () => {
     const data = sqlDb.export();
     fs.writeFileSync(DB_FILE, Buffer.from(data));
+    scheduleGithubBackup();
   };
 
   return {
@@ -58,6 +110,9 @@ function createDbWrapper(sqlDb) {
     }
   };
 }
+async function start() {
+  await restoreDbFromGithub();
+  const SQL = await initSqlJs();
 async function start() {
   const SQL = await initSqlJs();
   const rawDb = fs.existsSync(DB_FILE)
