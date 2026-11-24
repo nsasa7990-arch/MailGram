@@ -42,6 +42,7 @@
           </div>
         </div>
         <div class="me-actions">
+          <button id="openCreateRoomBtn" class="icon-mini" title="Создать группу или канал">📢</button>
           <button id="openSettingsBtn" class="icon-mini" title="Настройки">⚙️</button>
           <button id="logoutBtn" title="Выйти">Выйти</button>
         </div>
@@ -57,12 +58,19 @@
       <div id="chatHeader" class="chat-header">
         <button type="button" id="mobileBackBtn" class="mobile-back" title="Назад к чатам">←</button>
         <img id="chatHeaderAvatar" class="avatar sm hidden" src="" alt="">
-        <span id="chatHeaderTitle">Выберите чат</span>
+        <div>
+          <div id="chatHeaderTitle">Выберите чат</div>
+          <div id="chatHeaderSub" style="font-size:11px;color:#888;font-weight:400"></div>
+        </div>
       </div>
       <div id="messages"></div>
+      <div id="channelReadOnly" class="readonly-bar hidden">Вы подписаны на канал (публиковать посты может только владелец)</div>
       <form id="sendForm">
         <button type="button" id="openGiftBtn" class="icon-btn" title="Отправить подарок">🎁</button>
+        <button type="button" id="attachPhotoBtn" class="icon-btn" title="Отправить фото">📎</button>
+        <input type="file" id="photoInput" accept="image/*" hidden>
         <input id="msgInput" type="text" placeholder="Сообщение..." autocomplete="off">
+        <button type="button" id="voiceBtn" class="icon-btn" title="Записать голосовое">🎤</button>
         <button type="submit">➤</button>
       </form>
     </div>
@@ -86,6 +94,28 @@
       <button id="goSettingsFromProf" style="width:100%;margin-top:12px;background:#1f2937">⚙️ Редактировать профиль и настройки</button>
       <div class="section-title">Мои подарки (<span id="myGiftsCount">0</span>)</div>
       <div id="myGiftsGrid" class="gifts-grid"></div>
+    </div>
+  </div>
+
+  <!-- Создание группы или канала -->
+  <div id="createRoomModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-top">
+        <h3>Создать группу или канал</h3>
+        <button class="close-btn" data-close="createRoomModal">✕</button>
+      </div>
+      <form id="createRoomForm" class="stack-form">
+        <label class="fld-lbl">Тип</label>
+        <select id="roomTypeSelect" class="dark-select">
+          <option value="group">👥 Группа (пишут все участники)</option>
+          <option value="channel">📢 Канал (посты публикуете только вы)</option>
+        </select>
+        <label class="fld-lbl">Название</label>
+        <input id="roomTitleInput" type="text" placeholder="Например: Игровой чат или Новости" required>
+        <label class="fld-lbl">Публичный @username (чтобы другие могли найти)</label>
+        <input id="roomUsernameInput" type="text" placeholder="например: news_channel">
+        <button type="submit">Создать</button>
+      </form>
     </div>
   </div>
 
