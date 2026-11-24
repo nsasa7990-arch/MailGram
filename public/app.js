@@ -229,7 +229,7 @@ async function openChat(chat) {
 function buildVoicePlayer(src) {
   const wrap = document.createElement('div');
   wrap.className = 'tg-voice';
-  const heights =;
+const heights = new Array(22).fill(0).map((_, i) => 6 + (i * 5) % 16);
   const bars = heights.map(h => `<span style="height:${h}px"></span>`).join('');
   wrap.innerHTML = `
     <button type="button" class="tg-voice-play">▶</button>
@@ -238,7 +238,6 @@ function buildVoicePlayer(src) {
   const audio = new Audio(src);
   const btn = wrap.querySelector('.tg-voice-play');
   const timeEl = wrap.querySelector('.tg-voice-time');
-
   const fmt = sec => {
     if (!isFinite(sec)) return '0:00';
     const m = Math.floor(sec / 60);
