@@ -301,3 +301,75 @@ button:hover { background: #356594; }
   .bubble { max-width: 84%; }
   #sendForm { padding-bottom: env(safe-area-inset-bottom, 12px); }
 }
+/* ---------- Новые функции: продажа подарков, медиа, группы и счётчики ---------- */
+.sell-btn {
+  margin-top: 6px;
+  width: 100%;
+  background: #1f2937;
+  color: #fbbf24;
+  font-size: 11px;
+  padding: 5px 6px;
+  border-radius: 8px;
+}
+.sell-btn:hover { background: #374151; }
+
+.chat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.unread-badge {
+  background: #3b82f6;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.chat-photo {
+  max-width: 220px;
+  max-height: 240px;
+  border-radius: 10px;
+  display: block;
+  margin-top: 4px;
+}
+.chat-audio {
+  width: 210px;
+  height: 36px;
+  margin-top: 4px;
+}
+
+.voice-rec {
+  background: #dc2626 !important;
+  animation: pulseRec 1s infinite;
+}
+@keyframes pulseRec {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.dark-select {
+  background: #141414;
+  color: #ffffff;
+  border: 1px solid #2a2a2a;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+.readonly-bar {
+  padding: 12px;
+  text-align: center;
+  font-size: 13px;
+  color: #888;
+  background: #0a0a0a;
+  border-top: 1px solid #1f1f1f;
+}
