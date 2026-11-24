@@ -81,7 +81,10 @@ async function start() {
   );
   CREATE TABLE IF NOT EXISTS chats(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT
+    title TEXT,
+    type TEXT DEFAULT 'private',
+    owner_id INTEGER DEFAULT 0,
+    username TEXT DEFAULT ''
   );
   CREATE TABLE IF NOT EXISTS chat_members(
     chat_id INTEGER NOT NULL,
@@ -94,6 +97,8 @@ async function start() {
     user_id INTEGER NOT NULL,
     text TEXT NOT NULL,
     gift_id TEXT DEFAULT '',
+    media_type TEXT DEFAULT '',
+    media_data TEXT DEFAULT '',
     created_at INTEGER NOT NULL
   );
   CREATE TABLE IF NOT EXISTS user_gifts(
@@ -112,7 +117,12 @@ async function start() {
     "ALTER TABLE users ADD COLUMN username TEXT DEFAULT ''",
     "ALTER TABLE users ADD COLUMN nft_username TEXT DEFAULT ''",
     "ALTER TABLE users ADD COLUMN stars INTEGER DEFAULT 100",
-    "ALTER TABLE messages ADD COLUMN gift_id TEXT DEFAULT ''"
+    "ALTER TABLE chats ADD COLUMN type TEXT DEFAULT 'private'",
+    "ALTER TABLE chats ADD COLUMN owner_id INTEGER DEFAULT 0",
+    "ALTER TABLE chats ADD COLUMN username TEXT DEFAULT ''",
+    "ALTER TABLE messages ADD COLUMN gift_id TEXT DEFAULT ''",
+    "ALTER TABLE messages ADD COLUMN media_type TEXT DEFAULT ''",
+    "ALTER TABLE messages ADD COLUMN media_data TEXT DEFAULT ''"
   ];
   for (const sql of cols) {
     try { db.exec(sql); } catch {}
@@ -122,8 +132,8 @@ async function start() {
 
   const app = express();
   const server = http.createServer(app);
-  const io = new Server(server);
-  app.use(express.json({ limit: '8mb' }));
+  const io = new Server(server, { maxHttpBufferSize: 15 * 1024 * 1024 });
+  app.use(express.json({ limit: '15mb' }));
   app.use(express.static(path.join(__dirname, 'public')));
 
   const pub = u => ({
@@ -225,7 +235,10 @@ async function start() {
       SELECT ug.id, ug.gift_id, ug.created_at, u.name AS from_name
       FROM user_gifts ug JOIN users u ON u.id=ug.from_user_id
       WHERE ug.to_user_id=? ORDER BY ug.id DESC
-    `).all(u.id).map(g => ({ ...g, ...(GIFTS[g.gift_id] || {}) }));
+    `).all(u.id).map(g => {
+      const info = GIFTS[g.gift_id] || {};
+      return { ...g, ...info, sellPrice: Math.floor((info.price || 0) * 0.8) };
+    });
 
     res.json({ user: pub(u), gifts });
   });
@@ -251,11 +264,11 @@ async function start() {
       SELECT c.id FROM chats c
       JOIN chat_members a ON a.chat_id=c.id AND a.user_id=?
       JOIN chat_members b ON b.chat_id=c.id AND b.user_id=?
-      LIMIT 1
+      WHERE COALESCE(c.type,'private')='private' LIMIT 1
     `).get(req.user.id, toUserId);
 
     if (!chat) {
-      const cid = Number(db.prepare('INSERT INTO chats(title) VALUES(NULL)').run().lastInsertRowid);
+      const cid = Number(db.prepare("INSERT INTO chats(title,type) VALUES(NULL,'private')").run().lastInsertRowid);
       db.prepare('INSERT INTO chat_members(chat_id,user_id) VALUES(?,?)').run(cid, req.user.id);
       db.prepare('INSERT INTO chat_members(chat_id,user_id) VALUES(?,?)').run(cid, toUserId);
       chat = { id: cid };
@@ -271,11 +284,24 @@ async function start() {
       gift, created_at: now
     };
     io.to('chat:' + chat.id).emit('message', msg);
-    io.to('user:' + req.user.id).emit('chat:update', { chatId: chat.id, lastText: `🎁 ${gift.name}`, lastAt: now });
-    io.to('user:' + toUserId).emit('chat:update', { chatId: chat.id, lastText: `🎁 ${gift.name}`, lastAt: now });
+    io.to('user:' + req.user.id).emit('chat:update', { chatId: chat.id, lastText: `🎁 ${gift.name}`, lastAt: now, fromId: req.user.id });
+    io.to('user:' + toUserId).emit('chat:update', { chatId: chat.id, lastText: `🎁 ${gift.name}`, lastAt: now, fromId: req.user.id });
 
     const meUpdated = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
     res.json({ ok: true, stars: meUpdated.stars, chatId: chat.id });
+  });
+
+  app.post('/api/gifts/sell', auth, (req, res) => {
+    const ugId = Number(req.body?.userGiftId);
+    const row = db.prepare('SELECT * FROM user_gifts WHERE id=? AND to_user_id=?').get(ugId, req.user.id);
+    if (!row) return res.status(404).json({ error: 'Подарок не найден' });
+    const gift = GIFTS[row.gift_id];
+    const refund = Math.floor((gift?.price || 0) * 0.8);
+
+    db.prepare('DELETE FROM user_gifts WHERE id=?').run(ugId);
+    db.prepare('UPDATE users SET stars = stars + ? WHERE id=?').run(refund, req.user.id);
+    const updated = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
+    res.json({ ok: true, stars: updated.stars, refund });
   });
 
   app.post('/api/admin/grant', auth, (req, res) => {
@@ -302,9 +328,10 @@ async function start() {
     res.json({ ok: true, user: pub(updated) });
   });
 
+  /* ---------- Чаты, группы и каналы ---------- */
   app.get('/api/chats', auth, (req, res) => {
     const rows = db.prepare(`
-      SELECT c.id, c.title,
+      SELECT c.id, c.title, c.type, c.owner_id, c.username,
         (SELECT text FROM messages m WHERE m.chat_id=c.id ORDER BY m.id DESC LIMIT 1) AS last_text,
         (SELECT created_at FROM messages m WHERE m.chat_id=c.id ORDER BY m.id DESC LIMIT 1) AS last_at
       FROM chats c
@@ -318,10 +345,15 @@ async function start() {
         SELECT u.* FROM users u
         JOIN chat_members cm ON cm.user_id=u.id WHERE cm.chat_id=?
       `).all(r.id);
-      const other = members.find(m => m.id !== req.user.id);
+      const isPrivate = (r.type || 'private') === 'private';
+      const other = isPrivate ? members.find(m => m.id !== req.user.id) : null;
       return {
         id: r.id,
-        title: r.title || (other ? other.name : 'Чат'),
+        type: r.type || 'private',
+        ownerId: r.owner_id || 0,
+        username: r.username || '',
+        membersCount: members.length,
+        title: isPrivate ? (other ? other.name : 'Чат') : r.title,
         peer: other ? pub(other) : null,
         lastText: r.last_text || '',
         lastAt: r.last_at || 0
@@ -329,24 +361,53 @@ async function start() {
     }));
   });
 
+  app.post('/api/chats/create-room', auth, (req, res) => {
+    const title = String(req.body?.title || '').trim();
+    const type = req.body?.type === 'channel' ? 'channel' : 'group';
+    const username = String(req.body?.username || '').trim().replace(/^@/, '').toLowerCase();
+    if (!title) return res.status(400).json({ error: 'Введите название' });
+
+    if (username) {
+      const uExists = db.prepare('SELECT id FROM users WHERE LOWER(username)=? OR LOWER(nft_username)=?').get(username, username);
+      const cExists = db.prepare('SELECT id FROM chats WHERE LOWER(username)=?').get(username);
+      if (uExists || cExists) return res.status(409).json({ error: 'Этот @username уже занят' });
+    }
+
+    const chatId = Number(db.prepare(
+      'INSERT INTO chats(title,type,owner_id,username) VALUES(?,?,?,?)'
+    ).run(title, type, req.user.id, username).lastInsertRowid);
+    db.prepare('INSERT INTO chat_members(chat_id,user_id) VALUES(?,?)').run(chatId, req.user.id);
+    res.json({ id: chatId });
+  });
+
   app.post('/api/chats', auth, (req, res) => {
     const q = String(req.body?.query || req.body?.email || '').trim().toLowerCase().replace(/^@/, '');
+
+    // Сначала ищем группу или канал по @username
+    const room = db.prepare("SELECT * FROM chats WHERE LOWER(username)=? AND type IN ('group','channel')").get(q);
+    if (room) {
+      const inRoom = db.prepare('SELECT 1 FROM chat_members WHERE chat_id=? AND user_id=?').get(room.id, req.user.id);
+      if (!inRoom) db.prepare('INSERT INTO chat_members(chat_id,user_id) VALUES(?,?)').run(room.id, req.user.id);
+      return res.json({ id: room.id });
+    }
+
+    // Иначе ищем пользователя
     const peer = db.prepare(
       'SELECT * FROM users WHERE LOWER(email)=? OR LOWER(username)=? OR LOWER(nft_username)=?'
     ).get(q, q, q);
 
-    if (!peer) return res.status(404).json({ error: 'Пользователь не найден' });
+    if (!peer) return res.status(404).json({ error: 'Пользователь, группа или канал не найдены' });
     if (peer.id === req.user.id) return res.status(400).json({ error: 'Нельзя создать чат с собой' });
 
     const existing = db.prepare(`
       SELECT c.id FROM chats c
       JOIN chat_members a ON a.chat_id=c.id AND a.user_id=?
       JOIN chat_members b ON b.chat_id=c.id AND b.user_id=?
-      LIMIT 1
+      WHERE COALESCE(c.type,'private')='private' LIMIT 1
     `).get(req.user.id, peer.id);
     if (existing) return res.json({ id: existing.id });
 
-    const chatId = Number(db.prepare('INSERT INTO chats(title) VALUES(NULL)').run().lastInsertRowid);
+    const chatId = Number(db.prepare("INSERT INTO chats(title,type) VALUES(NULL,'private')").run().lastInsertRowid);
     db.prepare('INSERT INTO chat_members(chat_id,user_id) VALUES(?,?)').run(chatId, req.user.id);
     db.prepare('INSERT INTO chat_members(chat_id,user_id) VALUES(?,?)').run(chatId, peer.id);
     res.json({ id: chatId });
@@ -358,7 +419,7 @@ async function start() {
       return res.status(403).json({ error: 'Нет доступа' });
 
     const msgs = db.prepare(`
-      SELECT m.id, m.text, m.gift_id, m.created_at, m.user_id, u.name AS user_name
+      SELECT m.id, m.text, m.gift_id, m.media_type, m.media_data, m.created_at, m.user_id, u.name AS user_name
       FROM messages m JOIN users u ON u.id=m.user_id
       WHERE m.chat_id=? ORDER BY m.id ASC
     `).all(chatId).map(m => ({ ...m, gift: m.gift_id ? GIFTS[m.gift_id] : null }));
@@ -375,8 +436,7 @@ async function start() {
       next();
     } catch { next(new Error('unauthorized')); }
   });
-
-  io.on('connection', socket => {
+    io.on('connection', socket => {
     socket.join('user:' + socket.user.id);
 
     socket.on('join', chatId => {
@@ -385,32 +445,42 @@ async function start() {
       if (ok) socket.join('chat:' + chatId);
     });
 
-    socket.on('message', ({ chatId, text }) => {
+    socket.on('message', ({ chatId, text, mediaType, mediaData }) => {
       chatId = Number(chatId);
       text = String(text || '').trim();
-      if (!text || !chatId) return;
+      mediaType = String(mediaType || '');
+      mediaData = String(mediaData || '');
+      if ((!text && !mediaData) || !chatId) return;
 
       const ok = db.prepare('SELECT 1 FROM chat_members WHERE chat_id=? AND user_id=?')
         .get(chatId, socket.user.id);
       if (!ok) return;
 
-      const createdAt = Date.now();
-      const id = Number(db.prepare('INSERT INTO messages(chat_id,user_id,text,created_at) VALUES(?,?,?,?)')
-        .run(chatId, socket.user.id, text, createdAt).lastInsertRowid);
+      const chatInfo = db.prepare('SELECT * FROM chats WHERE id=?').get(chatId);
+      if (chatInfo?.type === 'channel' && chatInfo.owner_id !== socket.user.id) return;
 
-      const msg = { id, chat_id: chatId, user_id: socket.user.id, user_name: socket.user.name, text, created_at: createdAt };
+      const previewText = mediaType === 'image' ? '🖼️ Фото' : (mediaType === 'audio' ? '🎤 Голосовое сообщение' : text);
+      const createdAt = Date.now();
+      const id = Number(db.prepare(
+        'INSERT INTO messages(chat_id,user_id,text,media_type,media_data,created_at) VALUES(?,?,?,?,?,?)'
+      ).run(chatId, socket.user.id, previewText, mediaType, mediaData, createdAt).lastInsertRowid);
+
+      const msg = {
+        id, chat_id: chatId, user_id: socket.user.id, user_name: socket.user.name,
+        text: previewText, media_type: mediaType, media_data: mediaData, created_at: createdAt
+      };
       io.to('chat:' + chatId).emit('message', msg);
 
       const members = db.prepare('SELECT user_id FROM chat_members WHERE chat_id=?').all(chatId);
       for (const m of members) {
         io.to('user:' + m.user_id).emit('chat:update', {
-          chatId, lastText: text, lastAt: createdAt
+          chatId, lastText: previewText, lastAt: createdAt, fromId: socket.user.id
         });
       }
     });
   });
 
-  server.listen(PORT, '0.0.0.0', () => console.log(`✅ http://192.168.1.54:${PORT}`));
+  server.listen(PORT, '0.0.0.0', () => console.log(`✅ Server running on port ${PORT}`));
 }
 
 start();
