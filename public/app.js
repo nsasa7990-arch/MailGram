@@ -12,9 +12,27 @@ const tagsHtml = u => {
   return out;
 };
 
+function playNotifySound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(580, ctx.currentTime + 0.14);
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.16);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.16);
+  } catch {}
+}
+
 const state = {
   token: localStorage.getItem('token'),
-  user: null, socket: null, chats: [], activeChat: null, shop: [], giftTargetUserId: null
+  user: null, socket: null, chats: [], activeChat: null,
+  shop: [], giftTargetUserId: null, unread: {}
 };
 
 async function api(path, opts = {}) {
@@ -84,16 +102,27 @@ async function enterApp() {
   state.shop = await api('/gifts/shop');
   await loadChats();
 }
-
 function connectSocket() {
   state.socket = io({ auth: { token: state.token } });
   state.socket.on('message', msg => {
-    if (state.activeChat && msg.chat_id === state.activeChat.id) appendMessage(msg);
+    if (state.activeChat && msg.chat_id === state.activeChat.id) {
+      appendMessage(msg);
+    }
   });
   state.socket.on('chat:update', u => {
+    const isCurrent = state.activeChat && state.activeChat.id === u.chatId;
+    if (!isCurrent && u.fromId !== state.user.id) {
+      state.unread[u.chatId] = (state.unread[u.chatId] || 0) + 1;
+      playNotifySound();
+    }
     const chat = state.chats.find(c => c.id === u.chatId);
-    if (chat) { chat.lastText = u.lastText; chat.lastAt = u.lastAt; renderChats(); }
-    else loadChats();
+    if (chat) {
+      chat.lastText = u.lastText;
+      chat.lastAt = u.lastAt;
+      renderChats();
+    } else {
+      loadChats();
+    }
   });
 }
 
@@ -109,8 +138,17 @@ function renderChats() {
   for (const c of state.chats) {
     const el = document.createElement('div');
     el.className = 'chat-item' + (state.activeChat?.id === c.id ? ' active' : '');
-    el.innerHTML = `<div class="ci-title">${esc(c.title)}${badgeHtml(c.peer)}</div>
-                    <div class="ci-last">${esc(c.lastText || 'Нет сообщений')}</div>`;
+    const prefix = c.type === 'channel' ? '📢 ' : (c.type === 'group' ? '👥 ' : '');
+    const count = state.unread[c.id] || 0;
+    const badge = count > 0 ? `<span class="unread-badge">${count}</span>` : '';
+    el.innerHTML = `
+      <div class="chat-row">
+        <div style="min-width:0;flex:1">
+          <div class="ci-title">${prefix}${esc(c.title)}${badgeHtml(c.peer)}</div>
+          <div class="ci-last">${esc(c.lastText || 'Нет сообщений')}</div>
+        </div>
+        ${badge}
+      </div>`;
     el.onclick = () => openChat(c);
     list.appendChild(el);
   }
@@ -125,15 +163,30 @@ $('#mobileBackBtn').onclick = e => {
 
 async function openChat(chat) {
   state.activeChat = chat;
+  state.unread[chat.id] = 0;
   $('#app').classList.add('chat-open');
+
   const av = $('#chatHeaderAvatar');
-  if (chat.peer) {
+  const sub = $('#chatHeaderSub');
+  if (chat.type === 'private' && chat.peer) {
     av.src = chat.peer.avatar || DEFAULT_AVATAR;
     av.classList.remove('hidden');
+    sub.textContent = chat.peer.username ? '@' + chat.peer.username : '';
   } else {
     av.classList.add('hidden');
+    const kind = chat.type === 'channel' ? 'Канал' : 'Группа';
+    const tag = chat.username ? ` • @${chat.username}` : '';
+    sub.textContent = `${kind} • ${chat.membersCount || 1} уч.${tag}`;
   }
-  $('#chatHeaderTitle').innerHTML = esc(chat.title) + badgeHtml(chat.peer);
+
+  const prefix = chat.type === 'channel' ? '📢 ' : (chat.type === 'group' ? '👥 ' : '');
+  $('#chatHeaderTitle').innerHTML = prefix + esc(chat.title) + badgeHtml(chat.peer);
+
+  const isReadOnlyChannel = chat.type === 'channel' && chat.ownerId !== state.user.id;
+  $('#sendForm').classList.toggle('hidden', isReadOnlyChannel);
+  $('#channelReadOnly').classList.toggle('hidden', !isReadOnlyChannel);
+  $('#openGiftBtn').classList.toggle('hidden', chat.type !== 'private');
+
   renderChats();
   state.socket.emit('join', chat.id);
   const msgs = await api('/messages/' + chat.id);
@@ -142,6 +195,7 @@ async function openChat(chat) {
   msgs.forEach(appendMessage);
   box.scrollTop = box.scrollHeight;
 }
+
 function appendMessage(m) {
   const box = $('#messages');
   const el = document.createElement('div');
@@ -151,6 +205,16 @@ function appendMessage(m) {
       <span class="gift-emoji">${m.gift.emoji}</span>
       <div style="font-weight:700">${esc(m.gift.name)}</div>
       <div class="gift-label">Подарок от ${esc(m.user_name)}</div>
+    </div>`;
+  } else if (m.media_type === 'image' && m.media_data) {
+    el.innerHTML = `<div class="bubble">
+      <div class="author">${esc(m.user_name)}</div>
+      <img class="chat-photo" src="${m.media_data}" alt="Фото">
+    </div>`;
+  } else if (m.media_type === 'audio' && m.media_data) {
+    el.innerHTML = `<div class="bubble">
+      <div class="author">${esc(m.user_name)}</div>
+      <audio class="chat-audio" controls src="${m.media_data}"></audio>
     </div>`;
   } else {
     el.innerHTML = `<div class="bubble">
@@ -171,6 +235,69 @@ $('#sendForm').onsubmit = e => {
   input.value = '';
 };
 
+$('#attachPhotoBtn').onclick = () => {
+  if (!state.activeChat) return alert('Сначала выберите чат');
+  $('#photoInput').click();
+};
+
+$('#photoInput').onchange = e => {
+  const file = e.target.files.item(0);
+  if (!file || !state.activeChat) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    state.socket.emit('message', {
+      chatId: state.activeChat.id,
+      mediaType: 'image',
+      mediaData: reader.result
+    });
+    e.target.value = '';
+  };
+  reader.readAsDataURL(file);
+};
+/* ---------- Голосовые сообщения (запись с микрофона) ---------- */
+let mediaRecorder = null;
+let audioChunks = [];
+
+$('#voiceBtn').onclick = async () => {
+  if (!state.activeChat) return alert('Сначала выберите чат');
+  const btn = $('#voiceBtn');
+
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+    btn.classList.remove('voice-rec');
+    btn.textContent = '🎤';
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+    mediaRecorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(audioChunks, { type: 'audio/webm' });
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (state.activeChat) {
+          state.socket.emit('message', {
+            chatId: state.activeChat.id,
+            mediaType: 'audio',
+            mediaData: reader.result
+          });
+        }
+      };
+      reader.readAsDataURL(blob);
+    };
+    mediaRecorder.start();
+    btn.classList.add('voice-rec');
+    btn.textContent = '⏹️';
+  } catch {
+    alert('Нет доступа к микрофону или браузер запретил запись');
+  }
+};
+
+/* ---------- Поиск и создание групп / каналов ---------- */
 $('#newChatForm').onsubmit = async e => {
   e.preventDefault();
   const f = e.target;
@@ -183,19 +310,58 @@ $('#newChatForm').onsubmit = async e => {
   } catch (err) { alert(err.message); }
 };
 
+$('#openCreateRoomBtn').onclick = () => $('#createRoomModal').classList.remove('hidden');
+
+$('#createRoomForm').onsubmit = async e => {
+  e.preventDefault();
+  try {
+    const { id } = await api('/chats/create-room', { method: 'POST', body: JSON.stringify({
+      type: $('#roomTypeSelect').value,
+      title: $('#roomTitleInput').value,
+      username: $('#roomUsernameInput').value
+    })});
+    e.target.reset();
+    $('#createRoomModal').classList.add('hidden');
+    await loadChats();
+    const chat = state.chats.find(c => c.id === id);
+    if (chat) openChat(chat);
+  } catch (err) { alert(err.message); }
+};
+
+/* ---------- Модальные окна, Профиль и Продажа подарков ---------- */
 document.querySelectorAll('[data-close]').forEach(btn => {
   btn.onclick = () => $('#' + btn.dataset.close).classList.add('hidden');
 });
 
-function renderGiftsGrid(container, gifts) {
+function renderGiftsGrid(container, gifts, canSell = false) {
   container.innerHTML = gifts.length ? '' : '<div style="color:#666;font-size:13px">Пока нет подарков</div>';
   for (const g of gifts) {
     const card = document.createElement('div');
     card.className = 'gift-card';
+    const sellHtml = canSell && g.sellPrice
+      ? `<button type="button" class="sell-btn" data-sell="${g.id}">Продать за +${g.sellPrice} ⭐</button>`
+      : '';
     card.innerHTML = `<div class="g-ico">${g.emoji || '🎁'}</div>
       <div class="g-name">${esc(g.name)}</div>
-      <div class="g-sub">от ${esc(g.from_name)}</div>`;
+      <div class="g-sub">от ${esc(g.from_name)}</div>
+      ${sellHtml}`;
     container.appendChild(card);
+  }
+
+  if (canSell) {
+    container.querySelectorAll('[data-sell]').forEach(btn => {
+      btn.onclick = async () => {
+        if (!confirm('Продать этот подарок за звёзды?')) return;
+        try {
+          const res = await api('/gifts/sell', { method: 'POST', body: JSON.stringify({
+            userGiftId: Number(btn.dataset.sell)
+          })});
+          state.user.stars = res.stars;
+          renderMeBar();
+          $('#openMyProfile').click();
+        } catch (err) { alert(err.message); }
+      };
+    });
   }
 }
 
@@ -210,7 +376,7 @@ $('#openMyProfile').onclick = async () => {
   $('#profBioText').textContent = user.bio || 'Нет описания';
   $('#profStars').textContent = user.stars;
   $('#myGiftsCount').textContent = gifts.length;
-  renderGiftsGrid($('#myGiftsGrid'), gifts);
+  renderGiftsGrid($('#myGiftsGrid'), gifts, true);
   $('#myProfileModal').classList.remove('hidden');
 };
 
@@ -294,7 +460,7 @@ $('#chatHeader').onclick = async () => {
   $('#peerUsernames').innerHTML = tagsHtml(user);
   $('#peerBio').textContent = user.bio || 'Нет описания';
   $('#peerGiftsCount').textContent = gifts.length;
-  renderGiftsGrid($('#peerGiftsGrid'), gifts);
+  renderGiftsGrid($('#peerGiftsGrid'), gifts, false);
   state.giftTargetUserId = user.id;
   $('#peerProfileModal').classList.remove('hidden');
 };
