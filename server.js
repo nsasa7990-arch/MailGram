@@ -35,10 +35,10 @@ async function restoreDbFromGithub() {
     dbSha = data.sha;
     if (data.content) {
       fs.writeFileSync(DB_FILE, Buffer.from(data.content, 'base64'));
-      console.log('☁️ База mailgram.db восстановлена из GitHub');
+      console.log('DB restored from GitHub');
     }
   } catch (e) {
-    console.log('Ошибка загрузки БД из GitHub:', e.message);
+    console.log('DB restore error:', e.message);
   }
 }
 
@@ -67,7 +67,7 @@ function scheduleGithubBackup() {
       });
       if (put.ok) dbSha = (await put.json()).content?.sha || dbSha;
     } catch {}
-  }, 2500);
+  }, 2000);
 }
 
 function createDbWrapper(sqlDb) {
@@ -110,10 +110,15 @@ function createDbWrapper(sqlDb) {
     }
   };
 }
+const EXCLUSIVE_GIFTS = {
+  crystal: { id: 'crystal', name: 'Редкий Кристалл (Admin)', emoji: '💎', price: 5000, exclusive: true },
+  dragon: { id: 'dragon', name: 'Огненный Дракон (Admin)', emoji: '🐉', price: 10000, exclusive: true },
+  rocket: { id: 'rocket', name: 'Ракета MailGram (Admin)', emoji: '🚀', price: 7500, exclusive: true }
+};
+const ALL_GIFTS = { ...GIFTS, ...EXCLUSIVE_GIFTS };
+
 async function start() {
   await restoreDbFromGithub();
-  const SQL = await initSqlJs();
-async function start() {
   const SQL = await initSqlJs();
   const rawDb = fs.existsSync(DB_FILE)
     ? new SQL.Database(fs.readFileSync(DB_FILE))
@@ -129,9 +134,13 @@ async function start() {
     verified INTEGER DEFAULT 0,
     code TEXT,
     avatar TEXT DEFAULT '',
+    banner TEXT DEFAULT '',
     bio TEXT DEFAULT '',
     username TEXT DEFAULT '',
     nft_username TEXT DEFAULT '',
+    anon_number TEXT DEFAULT '',
+    is_premium INTEGER DEFAULT 0,
+    theme TEXT DEFAULT 'dark',
     stars INTEGER DEFAULT 100
   );
   CREATE TABLE IF NOT EXISTS chats(
@@ -154,6 +163,8 @@ async function start() {
     gift_id TEXT DEFAULT '',
     media_type TEXT DEFAULT '',
     media_data TEXT DEFAULT '',
+    edited INTEGER DEFAULT 0,
+    reactions TEXT DEFAULT '{}',
     created_at INTEGER NOT NULL
   );
   CREATE TABLE IF NOT EXISTS user_gifts(
@@ -168,22 +179,28 @@ async function start() {
 
   const cols = [
     "ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN banner TEXT DEFAULT ''",
     "ALTER TABLE users ADD COLUMN bio TEXT DEFAULT ''",
     "ALTER TABLE users ADD COLUMN username TEXT DEFAULT ''",
     "ALTER TABLE users ADD COLUMN nft_username TEXT DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN anon_number TEXT DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN is_premium INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'dark'",
     "ALTER TABLE users ADD COLUMN stars INTEGER DEFAULT 100",
     "ALTER TABLE chats ADD COLUMN type TEXT DEFAULT 'private'",
     "ALTER TABLE chats ADD COLUMN owner_id INTEGER DEFAULT 0",
     "ALTER TABLE chats ADD COLUMN username TEXT DEFAULT ''",
     "ALTER TABLE messages ADD COLUMN gift_id TEXT DEFAULT ''",
     "ALTER TABLE messages ADD COLUMN media_type TEXT DEFAULT ''",
-    "ALTER TABLE messages ADD COLUMN media_data TEXT DEFAULT ''"
+    "ALTER TABLE messages ADD COLUMN media_data TEXT DEFAULT ''",
+    "ALTER TABLE messages ADD COLUMN edited INTEGER DEFAULT 0",
+    "ALTER TABLE messages ADD COLUMN reactions TEXT DEFAULT '{}'"
   ];
   for (const sql of cols) {
     try { db.exec(sql); } catch {}
   }
 
-  db.prepare('UPDATE users SET verified=1 WHERE email=?').run(ADMIN_EMAIL);
+  db.prepare('UPDATE users SET verified=1, is_premium=1 WHERE email=?').run(ADMIN_EMAIL);
 
   const app = express();
   const server = http.createServer(app);
@@ -197,10 +214,14 @@ async function start() {
     name: u.name,
     verified: Boolean(u.verified || u.email === ADMIN_EMAIL),
     isAdmin: u.email === ADMIN_EMAIL,
+    isPremium: Boolean(u.is_premium || u.email === ADMIN_EMAIL),
     avatar: u.avatar || '',
+    banner: u.banner || '',
     bio: u.bio || '',
     username: u.username || '',
     nft_username: u.nft_username || '',
+    anon_number: u.anon_number || '',
+    theme: u.theme || 'dark',
     stars: Number(u.stars || 0)
   });
 
@@ -231,8 +252,8 @@ async function start() {
     const isAdm = norm === ADMIN_EMAIL;
     const hash = await bcrypt.hash(password, 10);
     const id = Number(db.prepare(
-      'INSERT INTO users(email,name,password_hash,verified,stars) VALUES(?,?,?,?,?)'
-    ).run(norm, name.trim(), hash, isAdm ? 1 : 0, isAdm ? 10000 : 100).lastInsertRowid);
+      'INSERT INTO users(email,name,password_hash,verified,is_premium,stars) VALUES(?,?,?,?,?,?)'
+    ).run(norm, name.trim(), hash, isAdm ? 1 : 0, isAdm ? 1 : 0, isAdm ? 10000 : 100).lastInsertRowid);
 
     const user = db.prepare('SELECT * FROM users WHERE id=?').get(id);
     res.json({ token: sign(user), user: pub(user) });
@@ -256,6 +277,8 @@ async function start() {
     const name = String(req.body?.name || req.user.name).trim();
     const bio = String(req.body?.bio ?? req.user.bio).trim();
     const avatar = req.body?.avatar !== undefined ? String(req.body.avatar) : req.user.avatar;
+    const banner = req.body?.banner !== undefined ? String(req.body.banner) : req.user.banner;
+    const theme = req.body?.theme !== undefined ? String(req.body.theme) : (req.user.theme || 'dark');
     const username = req.body?.username !== undefined
       ? String(req.body.username).trim().replace(/^@/, '')
       : req.user.username;
@@ -272,27 +295,41 @@ async function start() {
 
     if (newPass) {
       const hash = await bcrypt.hash(newPass, 10);
-      db.prepare('UPDATE users SET name=?, bio=?, avatar=?, username=?, password_hash=? WHERE id=?')
-        .run(name, bio, avatar, username, hash, req.user.id);
+      db.prepare('UPDATE users SET name=?, bio=?, avatar=?, banner=?, theme=?, username=?, password_hash=? WHERE id=?')
+        .run(name, bio, avatar, banner, theme, username, hash, req.user.id);
     } else {
-      db.prepare('UPDATE users SET name=?, bio=?, avatar=?, username=? WHERE id=?')
-        .run(name, bio, avatar, username, req.user.id);
+      db.prepare('UPDATE users SET name=?, bio=?, avatar=?, banner=?, theme=?, username=? WHERE id=?')
+        .run(name, bio, avatar, banner, theme, username, req.user.id);
     }
 
     const updated = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
     res.json(pub(updated));
   });
+
+  app.post('/api/premium/buy', auth, (req, res) => {
+    const price = 500;
+    if (req.user.is_premium || req.user.email === ADMIN_EMAIL) {
+      return res.status(400).json({ error: 'У вас уже активен MailGram Premium ⭐' });
+    }
+    if ((req.user.stars || 0) < price) {
+      return res.status(400).json({ error: `Нужно ${price} ⭐ для покупки Premium` });
+    }
+    db.prepare('UPDATE users SET stars = stars - ?, is_premium = 1 WHERE id=?').run(price, req.user.id);
+    const updated = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
+    res.json({ ok: true, user: pub(updated) });
+  });
   app.get('/api/users/:id', auth, (req, res) => {
     const u = db.prepare('SELECT * FROM users WHERE id=?').get(Number(req.params.id));
     if (!u) return res.status(404).json({ error: 'Не найден' });
 
+    const rate = (u.is_premium || u.email === ADMIN_EMAIL) ? 1.0 : 0.8;
     const gifts = db.prepare(`
-      SELECT ug.id, ug.gift_id, ug.created_at, u.name AS from_name
-      FROM user_gifts ug JOIN users u ON u.id=ug.from_user_id
+      SELECT ug.id, ug.gift_id, ug.created_at, COALESCE(u.name, 'Администратор') AS from_name
+      FROM user_gifts ug LEFT JOIN users u ON u.id=ug.from_user_id
       WHERE ug.to_user_id=? ORDER BY ug.id DESC
     `).all(u.id).map(g => {
-      const info = GIFTS[g.gift_id] || {};
-      return { ...g, ...info, sellPrice: Math.floor((info.price || 0) * 0.8) };
+      const info = ALL_GIFTS[g.gift_id] || {};
+      return { ...g, ...info, sellPrice: Math.floor((info.price || 0) * rate) };
     });
 
     res.json({ user: pub(u), gifts });
@@ -336,7 +373,7 @@ async function start() {
     const msg = {
       id: msgId, chat_id: chat.id, user_id: req.user.id,
       user_name: req.user.name, text: `Подарок: ${gift.name}`,
-      gift, created_at: now
+      gift, reactions: {}, edited: 0, created_at: now
     };
     io.to('chat:' + chat.id).emit('message', msg);
     io.to('user:' + req.user.id).emit('chat:update', { chatId: chat.id, lastText: `🎁 ${gift.name}`, lastAt: now, fromId: req.user.id });
@@ -350,8 +387,9 @@ async function start() {
     const ugId = Number(req.body?.userGiftId);
     const row = db.prepare('SELECT * FROM user_gifts WHERE id=? AND to_user_id=?').get(ugId, req.user.id);
     if (!row) return res.status(404).json({ error: 'Подарок не найден' });
-    const gift = GIFTS[row.gift_id];
-    const refund = Math.floor((gift?.price || 0) * 0.8);
+    const gift = ALL_GIFTS[row.gift_id];
+    const rate = (req.user.is_premium || req.user.email === ADMIN_EMAIL) ? 1.0 : 0.8;
+    const refund = Math.floor((gift?.price || 0) * rate);
 
     db.prepare('DELETE FROM user_gifts WHERE id=?').run(ugId);
     db.prepare('UPDATE users SET stars = stars + ? WHERE id=?').run(refund, req.user.id);
@@ -359,25 +397,38 @@ async function start() {
     res.json({ ok: true, stars: updated.stars, refund });
   });
 
+  /* ---------- Расширенная Админ-панель (по @username или email) ---------- */
   app.post('/api/admin/grant', auth, (req, res) => {
     if (req.user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Нет прав' });
-    const email = String(req.body?.email || '').trim().toLowerCase();
-    const target = db.prepare('SELECT * FROM users WHERE email=?').get(email);
-    if (!target) return res.status(404).json({ error: 'Пользователь не найден' });
+    const q = String(req.body?.query || req.body?.email || '').trim().toLowerCase().replace(/^@/, '');
+    const target = db.prepare(
+      'SELECT * FROM users WHERE LOWER(email)=? OR LOWER(username)=? OR LOWER(nft_username)=?'
+    ).get(q, q, q);
+    if (!target) return res.status(404).json({ error: 'Пользователь по этому @username или Email не найден' });
 
     const addStars = Number(req.body?.stars || 0);
     const username = String(req.body?.username || '').trim().replace(/^@/, '');
     const nft = String(req.body?.nft_username || '').trim().replace(/^@/, '');
+    const anonNumber = String(req.body?.anon_number || '').trim();
     const verified = req.body?.verified ? 1 : 0;
+    const isPremium = req.body?.is_premium ? 1 : 0;
+    const giftId = String(req.body?.gift_id || '').trim();
 
     db.prepare(`
       UPDATE users SET
         stars = stars + ?,
         verified = ?,
+        is_premium = ?,
         username = CASE WHEN ? != '' THEN ? ELSE username END,
-        nft_username = CASE WHEN ? != '' THEN ? ELSE nft_username END
+        nft_username = CASE WHEN ? != '' THEN ? ELSE nft_username END,
+        anon_number = CASE WHEN ? != '' THEN ? ELSE anon_number END
       WHERE id=?
-    `).run(addStars, verified, username, username, nft, nft, target.id);
+    `).run(addStars, verified, isPremium, username, username, nft, nft, anonNumber, anonNumber, target.id);
+
+    if (giftId && ALL_GIFTS[giftId]) {
+      db.prepare('INSERT INTO user_gifts(to_user_id,from_user_id,gift_id,created_at) VALUES(?,?,?,?)')
+        .run(target.id, req.user.id, giftId, Date.now());
+    }
 
     const updated = db.prepare('SELECT * FROM users WHERE id=?').get(target.id);
     res.json({ ok: true, user: pub(updated) });
@@ -438,7 +489,6 @@ async function start() {
   app.post('/api/chats', auth, (req, res) => {
     const q = String(req.body?.query || req.body?.email || '').trim().toLowerCase().replace(/^@/, '');
 
-    // Сначала ищем группу или канал по @username
     const room = db.prepare("SELECT * FROM chats WHERE LOWER(username)=? AND type IN ('group','channel')").get(q);
     if (room) {
       const inRoom = db.prepare('SELECT 1 FROM chat_members WHERE chat_id=? AND user_id=?').get(room.id, req.user.id);
@@ -446,7 +496,6 @@ async function start() {
       return res.json({ id: room.id });
     }
 
-    // Иначе ищем пользователя
     const peer = db.prepare(
       'SELECT * FROM users WHERE LOWER(email)=? OR LOWER(username)=? OR LOWER(nft_username)=?'
     ).get(q, q, q);
@@ -467,17 +516,18 @@ async function start() {
     db.prepare('INSERT INTO chat_members(chat_id,user_id) VALUES(?,?)').run(chatId, peer.id);
     res.json({ id: chatId });
   });
-
   app.get('/api/messages/:chatId', auth, (req, res) => {
     const chatId = Number(req.params.chatId);
     if (!db.prepare('SELECT 1 FROM chat_members WHERE chat_id=? AND user_id=?').get(chatId, req.user.id))
       return res.status(403).json({ error: 'Нет доступа' });
 
-    const msgs = db.prepare(`
-      SELECT m.id, m.text, m.gift_id, m.media_type, m.media_data, m.created_at, m.user_id, u.name AS user_name
-      FROM messages m JOIN users u ON u.id=m.user_id
-      WHERE m.chat_id=? ORDER BY m.id ASC
-    `).all(chatId).map(m => ({ ...m, gift: m.gift_id ? GIFTS[m.gift_id] : null }));
+    const msgs = db.prepare(
+      'SELECT m.id, m.text, m.gift_id, m.media_type, m.media_data, m.edited, m.reactions, m.created_at, m.user_id, u.name AS user_name FROM messages m JOIN users u ON u.id=m.user_id WHERE m.chat_id=? ORDER BY m.id ASC'
+    ).all(chatId).map(m => {
+      let rx = {};
+      try { rx = JSON.parse(m.reactions || '{}'); } catch {}
+      return { ...m, reactions: rx, gift: m.gift_id ? ALL_GIFTS[m.gift_id] : null };
+    });
 
     res.json(msgs);
   });
@@ -491,7 +541,8 @@ async function start() {
       next();
     } catch { next(new Error('unauthorized')); }
   });
-    io.on('connection', socket => {
+
+  io.on('connection', socket => {
     socket.join('user:' + socket.user.id);
 
     socket.on('join', chatId => {
@@ -522,7 +573,8 @@ async function start() {
 
       const msg = {
         id, chat_id: chatId, user_id: socket.user.id, user_name: socket.user.name,
-        text: previewText, media_type: mediaType, media_data: mediaData, created_at: createdAt
+        text: previewText, media_type: mediaType, media_data: mediaData,
+        edited: 0, reactions: {}, created_at: createdAt
       };
       io.to('chat:' + chatId).emit('message', msg);
 
@@ -533,9 +585,40 @@ async function start() {
         });
       }
     });
+
+    socket.on('message:edit', ({ msgId, text }) => {
+      msgId = Number(msgId);
+      text = String(text || '').trim();
+      if (!msgId || !text) return;
+      const m = db.prepare('SELECT * FROM messages WHERE id=? AND user_id=?').get(msgId, socket.user.id);
+      if (!m || m.gift_id || m.media_type) return;
+      db.prepare('UPDATE messages SET text=?, edited=1 WHERE id=?').run(text, msgId);
+      io.to('chat:' + m.chat_id).emit('message:edited', { id: msgId, text });
+    });
+
+    socket.on('message:delete', ({ msgId }) => {
+      msgId = Number(msgId);
+      const m = db.prepare('SELECT * FROM messages WHERE id=? AND user_id=?').get(msgId, socket.user.id);
+      if (!m) return;
+      db.prepare('DELETE FROM messages WHERE id=?').run(msgId);
+      io.to('chat:' + m.chat_id).emit('message:deleted', { id: msgId });
+    });
+
+    socket.on('message:react', ({ msgId, emoji }) => {
+      msgId = Number(msgId);
+      emoji = String(emoji || '').trim();
+      if (!msgId || !emoji) return;
+      const m = db.prepare('SELECT * FROM messages WHERE id=?').get(msgId);
+      if (!m) return;
+      let rx = {};
+      try { rx = JSON.parse(m.reactions || '{}'); } catch {}
+      rx[emoji] = (rx[emoji] || 0) + 1;
+      db.prepare('UPDATE messages SET reactions=? WHERE id=?').run(JSON.stringify(rx), msgId);
+      io.to('chat:' + m.chat_id).emit('message:reacted', { id: msgId, reactions: rx });
+    });
   });
 
-  server.listen(PORT, '0.0.0.0', () => console.log(`✅ Server running on port ${PORT}`));
+  server.listen(PORT, '0.0.0.0', () => console.log('Server running on port ' + PORT));
 }
 
 start();
