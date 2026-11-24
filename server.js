@@ -31,24 +31,6 @@ const EXCLUSIVE_GIFTS = {
 };
 
 const ALL_GIFTS = { ...GIFTS, ...EXCLUSIVE_GIFTS };
-const GIFTS = {
-  lollipop: { id: 'lollipop', name: 'Сладкий Леденец', emoji: '🍭', price: 10 },
-  bear: { id: 'bear', name: 'Плюшевый Мишка', emoji: '🧸', price: 15 },
-  heart: { id: 'heart', name: 'Сердце с бантиком', emoji: '💝', price: 25 },
-  snowman: { id: 'snowman', name: 'Новогодний Снеговик', emoji: '⛄', price: 50 },
-  tree: { id: 'tree', name: 'Новогодняя Ёлка', emoji: '🎄', price: 100 },
-  ring: { id: 'ring', name: 'Кольцо с бриллиантом', emoji: '💍', price: 250 },
-  crown: { id: 'crown', name: 'Золотая Корона', emoji: '👑', price: 1500 },
-  unicorn: { id: 'unicorn', name: 'Лимитированный Единорог', emoji: '🦄', price: 10000, limited: 1000 }
-};
-
-const EXCLUSIVE_GIFTS = {
-  crystal: { id: 'crystal', name: 'Редкий Кристалл (Admin)', emoji: '💎', price: 5000, exclusive: true },
-  dragon: { id: 'dragon', name: 'Огненный Дракон (Admin)', emoji: '🐉', price: 15000, exclusive: true },
-  rocket: { id: 'rocket', name: 'Ракета Lume (Admin)', emoji: '🚀', price: 25000, exclusive: true }
-};
-
-const ALL_GIFTS = { ...GIFTS, ...EXCLUSIVE_GIFTS };
 let dbSha = null;
 let diskTimer = null;
 let ghTimer = null;
