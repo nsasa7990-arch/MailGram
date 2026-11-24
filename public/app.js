@@ -1,500 +1,795 @@
-const express = require('express');
-const http = require('http');
-const path = require('path');
-const fs = require('fs');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const initSqlJs = require('sql.js');
-const { Server } = require('socket.io');
+const $ = s => document.querySelector(s);
+const esc = s => String(s || '').replace(/[&<>"']/g, c =>
+  ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
-const PORT = process.env.PORT || 3000;
-const DB_FILE = path.join(__dirname, 'mailgram.db');
-const ADMIN_EMAIL = 'licciy093@gmail.com';
-const GH_TOKEN = process.env.GITHUB_TOKEN || '';
-const GH_API = 'https://github.com';
+const DEFAULT_AVATAR = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='80' height='80'><rect width='80' height='80' fill='%232b5278'/><text x='50%' y='54%' dominant-baseline='middle' text-anchor='middle' fill='white' font-size='32' font-family='sans-serif'>👤</text></svg>";
 
-const GIFTS = {
-  bear: { id: 'bear', name: 'Мишка', emoji: '🧸', price: 15 },
-  heart: { id: 'heart', name: 'Сердце с бантиком', emoji: '💝', price: 15 },
-  rose: { id: 'rose', name: 'Роза', emoji: '🌹', price: 25 },
-  crown: { id: 'crown', name: 'Бриллиантовая корона', emoji: '👑', price: 2000 }
+const badgeHtml = u => {
+  let s = '';
+  if (u?.verified) s += '<span class="verified-badge" title="Подтверждённый аккаунт">✓</span>';
+  if (u?.isPremium) s += '<span class="prem-star" title="MailGram Premium">⭐</span>';
+  return s;
 };
 
-const EXCLUSIVE_GIFTS = {
-  crystal: { id: 'crystal', name: 'Редкий Кристалл (Admin)', emoji: '💎', price: 5000, exclusive: true },
-  dragon: { id: 'dragon', name: 'Огненный Дракон (Admin)', emoji: '🐉', price: 10000, exclusive: true },
-  rocket: { id: 'rocket', name: 'Ракета MailGram (Admin)', emoji: '🚀', price: 7500, exclusive: true }
+const tagsHtml = u => {
+  let out = '';
+  if (u?.username) out += '<span class="tag-user">@' + esc(u.username) + '</span>';
+  if (u?.nft_username) out += '<span class="tag-nft">💎 @' + esc(u.nft_username) + '</span>';
+  if (u?.anon_number) out += '<span class="tag-anon">📞 ' + esc(u.anon_number) + '</span>';
+  return out;
 };
 
-const ALL_GIFTS = { ...GIFTS, ...EXCLUSIVE_GIFTS };
+function applyTheme(theme) {
+  document.body.className = 'theme-' + (theme || 'dark');
+}
 
-let dbSha = null;
-let syncTimer = null;
+function applyLang(lang) {
+  const isEn = lang === 'en';
+  $('#msgInput').placeholder = isEn ? 'Message...' : 'Сообщение...';
+  $('#logoutBtn').textContent = isEn ? 'Exit' : 'Выйти';
+  $('#authSubtitle').textContent = isEn ? 'Email-based Messenger' : 'Мессенджер со входом по почте';
+}
 
-async function restoreDbFromGithub() {
-  if (!GH_TOKEN) return;
+function playNotifySound() {
   try {
-    const res = await fetch(GH_API, {
-      headers: { Authorization: 'Bearer ' + GH_TOKEN, 'User-Agent': 'MailGram' }
-    });
-    if (!res.ok) return;
-    const data = await res.json();
-    dbSha = data.sha;
-    if (data.content) fs.writeFileSync(DB_FILE, Buffer.from(data.content, 'base64'));
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(580, ctx.currentTime + 0.14);
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.16);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.16);
   } catch {}
 }
 
-function scheduleGithubBackup() {
-  if (!GH_TOKEN) return;
-  clearTimeout(syncTimer);
-  syncTimer = setTimeout(async () => {
-    try {
-      const content = fs.readFileSync(DB_FILE).toString('base64');
-      if (!dbSha) {
-        const check = await fetch(GH_API, {
-          headers: { Authorization: 'Bearer ' + GH_TOKEN, 'User-Agent': 'MailGram' }
-        });
-        if (check.ok) dbSha = (await check.json()).sha;
-      }
-      const body = { message: 'sync db', content };
-      if (dbSha) body.sha = dbSha;
-      const put = await fetch(GH_API, {
-        method: 'PUT',
-        headers: {
-          Authorization: 'Bearer ' + GH_TOKEN,
-          'User-Agent': 'MailGram',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(body)
-      });
-      if (put.ok) dbSha = (await put.json()).content?.sha || dbSha;
-    } catch {}
-  }, 2000);
+const state = {
+  token: localStorage.getItem('token'),
+  user: null, socket: null, chats: [], activeChat: null,
+  shop: [], giftTargetUserId: null, unread: {}, selectedMsg: null
+};
+
+async function api(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (state.token) headers.Authorization = 'Bearer ' + state.token;
+  const res = await fetch('/api' + path, { ...opts, headers });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Ошибка');
+  return data;
 }
 
-function createDbWrapper(sqlDb) {
-  const save = () => {
-    fs.writeFileSync(DB_FILE, Buffer.from(sqlDb.export()));
-    scheduleGithubBackup();
-  };
-  return {
-    exec(sql) { sqlDb.run(sql); save(); },
-    prepare(sql) {
-      return {
-        get(...params) {
-          const stmt = sqlDb.prepare(sql);
-          stmt.bind(params);
-          const row = stmt.step() ? stmt.getAsObject() : undefined;
-          stmt.free();
-          return row;
-        },
-        all(...params) {
-          const stmt = sqlDb.prepare(sql);
-          stmt.bind(params);
-          const rows = [];
-          while (stmt.step()) rows.push(stmt.getAsObject());
-          stmt.free();
-          return rows;
-        },
-        run(...params) {
-          sqlDb.run(sql, params);
-          const res = sqlDb.exec('SELECT last_insert_rowid() AS id');
-          const lastInsertRowid = res.at(0)?.values?.at(0)?.at(0) || 0;
-          save();
-          return { lastInsertRowid };
-        }
-      };
-    }
-  };
+const authScreen = $('#auth'), appScreen = $('#app'), authMsg = $('#authMsg');
+
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === t));
+  $('#loginForm').classList.toggle('hidden', t.dataset.tab !== 'login');
+  $('#registerForm').classList.toggle('hidden', t.dataset.tab !== 'register');
+  authMsg.textContent = '';
+});
+
+$('#registerForm').onsubmit = async e => {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    const data = await api('/register', { method: 'POST', body: JSON.stringify({
+      name: f.name.value, email: f.email.value, password: f.password.value
+    })});
+    login(data);
+  } catch (err) { authMsg.textContent = err.message; }
+};
+
+$('#loginForm').onsubmit = async e => {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    const data = await api('/login', { method: 'POST', body: JSON.stringify({
+      email: f.email.value, password: f.password.value
+    })});
+    login(data);
+  } catch (err) { authMsg.textContent = err.message; }
+};
+
+function login(data) {
+  state.token = data.token;
+  localStorage.setItem('token', data.token);
+  state.user = data.user;
+  enterApp();
 }
 
-async function start() {
-  await restoreDbFromGithub();
-  const SQL = await initSqlJs();
-  const rawDb = fs.existsSync(DB_FILE) ? new SQL.Database(fs.readFileSync(DB_FILE)) : new SQL.Database();
-  const db = createDbWrapper(rawDb);
+function logout() {
+  localStorage.removeItem('token');
+  location.reload();
+}
+$('#logoutBtn').onclick = logout;
 
-  db.exec(
-    "CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL, password_hash TEXT NOT NULL, verified INTEGER DEFAULT 0, avatar TEXT DEFAULT '', banner TEXT DEFAULT '', bio TEXT DEFAULT '', username TEXT DEFAULT '', nft_username TEXT DEFAULT '', anon_number TEXT DEFAULT '', is_premium INTEGER DEFAULT 0, theme TEXT DEFAULT 'dark', hide_email INTEGER DEFAULT 0, lang TEXT DEFAULT 'ru', stars INTEGER DEFAULT 100);" +
-    "CREATE TABLE IF NOT EXISTS chats(id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, type TEXT DEFAULT 'private', owner_id INTEGER DEFAULT 0, username TEXT DEFAULT '');" +
-    "CREATE TABLE IF NOT EXISTS chat_members(chat_id INTEGER NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY(chat_id, user_id));" +
-    "CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, user_id INTEGER NOT NULL, text TEXT NOT NULL, gift_id TEXT DEFAULT '', gift_num INTEGER DEFAULT 0, media_type TEXT DEFAULT '', media_data TEXT DEFAULT '', edited INTEGER DEFAULT 0, reactions TEXT DEFAULT '{}', created_at INTEGER NOT NULL);" +
-    "CREATE TABLE IF NOT EXISTS user_gifts(id INTEGER PRIMARY KEY AUTOINCREMENT, to_user_id INTEGER NOT NULL, from_user_id INTEGER NOT NULL, gift_id TEXT NOT NULL, created_at INTEGER NOT NULL);"
-  );
+function renderMeBar() {
+  $('#meAvatar').src = state.user.avatar || DEFAULT_AVATAR;
+  $('#meName').innerHTML = esc(state.user.name) + badgeHtml(state.user);
+  $('#meSub').textContent = state.user.stars + ' ⭐';
+  $('#openAdminBtn').classList.toggle('hidden', !state.user.isAdmin);
+  applyTheme(state.user.theme);
+  applyLang(state.user.lang);
+}
 
-  const alters = [
-    "ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ''",
-    "ALTER TABLE users ADD COLUMN banner TEXT DEFAULT ''",
-    "ALTER TABLE users ADD COLUMN bio TEXT DEFAULT ''",
-    "ALTER TABLE users ADD COLUMN username TEXT DEFAULT ''",
-    "ALTER TABLE users ADD COLUMN nft_username TEXT DEFAULT ''",
-    "ALTER TABLE users ADD COLUMN anon_number TEXT DEFAULT ''",
-    "ALTER TABLE users ADD COLUMN is_premium INTEGER DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'dark'",
-    "ALTER TABLE users ADD COLUMN hide_email INTEGER DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'ru'",
-    "ALTER TABLE users ADD COLUMN stars INTEGER DEFAULT 100",
-    "ALTER TABLE chats ADD COLUMN type TEXT DEFAULT 'private'",
-    "ALTER TABLE chats ADD COLUMN owner_id INTEGER DEFAULT 0",
-    "ALTER TABLE chats ADD COLUMN username TEXT DEFAULT ''",
-    "ALTER TABLE messages ADD COLUMN gift_id TEXT DEFAULT ''",
-    "ALTER TABLE messages ADD COLUMN gift_num INTEGER DEFAULT 0",
-    "ALTER TABLE messages ADD COLUMN media_type TEXT DEFAULT ''",
-    "ALTER TABLE messages ADD COLUMN media_data TEXT DEFAULT ''",
-    "ALTER TABLE messages ADD COLUMN edited INTEGER DEFAULT 0",
-    "ALTER TABLE messages ADD COLUMN reactions TEXT DEFAULT '{}'"
-  ];
-  for (const sql of alters) { try { db.exec(sql); } catch {} }
-
-  db.prepare('UPDATE users SET verified=1, is_premium=1 WHERE email=?').run(ADMIN_EMAIL);
-
-  const app = express();
-  const server = http.createServer(app);
-  const io = new Server(server, { maxHttpBufferSize: 15 * 1024 * 1024 });
-  app.use(express.json({ limit: '15mb' }));
-  app.use(express.static(path.join(__dirname, 'public')));
-
-  const pub = (u, forOwner = false) => ({
-    id: u.id,
-    email: (forOwner || !u.hide_email) ? u.email : '',
-    hideEmail: Boolean(u.hide_email),
-    lang: u.lang || 'ru',
-    name: u.name,
-    verified: Boolean(u.verified || u.email === ADMIN_EMAIL),
-    isAdmin: u.email === ADMIN_EMAIL,
-    isPremium: Boolean(u.is_premium || u.email === ADMIN_EMAIL),
-    avatar: u.avatar || '',
-    banner: u.banner || '',
-    bio: u.bio || '',
-    username: u.username || '',
-    nft_username: u.nft_username || '',
-    anon_number: u.anon_number || '',
-    theme: u.theme || 'dark',
-    stars: Number(u.stars || 0)
+async function enterApp() {
+  authScreen.classList.add('hidden');
+  appScreen.classList.remove('hidden');
+  renderMeBar();
+  connectSocket();
+  state.shop = await api('/gifts/shop');
+  await loadChats();
+}
+function connectSocket() {
+  state.socket = io({ auth: { token: state.token } });
+  state.socket.on('message', msg => {
+    if (state.activeChat && msg.chat_id === state.activeChat.id) appendMessage(msg);
   });
+  state.socket.on('message:edited', ({ id, text }) => {
+    const el = document.querySelector('[data-msg-id="' + id + '"] .msg-body-text');
+    if (el) el.innerHTML = esc(text) + '<span class="edited-mark">изм.</span>';
+  });
+  state.socket.on('message:deleted', ({ id }) => {
+    const row = document.querySelector('[data-msg-id="' + id + '"]');
+    if (row) row.remove();
+  });
+  state.socket.on('message:reacted', ({ id, reactions }) => {
+    const row = document.querySelector('[data-msg-id="' + id + '"] .reactions-row');
+    if (row) row.innerHTML = renderReactionsHtml(reactions);
+  });
+  state.socket.on('chat:update', u => {
+    const isCurrent = state.activeChat && state.activeChat.id === u.chatId;
+    if (!isCurrent && u.fromId !== state.user.id) {
+      state.unread[u.chatId] = (state.unread[u.chatId] || 0) + 1;
+      playNotifySound();
+    }
+    const chat = state.chats.find(c => c.id === u.chatId);
+    if (chat) {
+      chat.lastText = u.lastText;
+      chat.lastAt = u.lastAt;
+      renderChats();
+    } else {
+      loadChats();
+    }
+  });
+}
 
-  const sign = u => jwt.sign({ id: u.id }, JWT_SECRET, { expiresIn: '30d' });
+function renderReactionsHtml(rx) {
+  if (!rx) return '';
+  return Object.entries(rx)
+    .filter(([, count]) => count > 0)
+    .map(([emo, count]) => '<span class="rx-pill">' + emo + ' ' + count + '</span>')
+    .join('');
+}
 
-  function auth(req, res, next) {
-    const h = req.headers.authorization || '';
-    const token = h.startsWith('Bearer ') ? h.slice(7) : null;
-    if (!token) return res.status(401).json({ error: 'Нет токена' });
-    try {
-      const { id } = jwt.verify(token, JWT_SECRET);
-      const user = db.prepare('SELECT * FROM users WHERE id=?').get(id);
-      if (!user) return res.status(401).json({ error: 'Не найден' });
-      req.user = user;
-      next();
-    } catch { res.status(401).json({ error: 'Неверный токен' }); }
+async function loadChats() {
+  state.chats = await api('/chats');
+  renderChats();
+}
+
+function renderChats() {
+  const list = $('#chatList');
+  list.innerHTML = '';
+  state.chats.sort((a, b) => b.lastAt - a.lastAt);
+  for (const c of state.chats) {
+    const el = document.createElement('div');
+    el.className = 'chat-item' + (state.activeChat?.id === c.id ? ' active' : '');
+    const prefix = c.type === 'channel' ? '📢 ' : (c.type === 'group' ? '👥 ' : '');
+    const count = state.unread[c.id] || 0;
+    const badge = count > 0 ? '<span class="unread-badge">' + count + '</span>' : '';
+    el.innerHTML =
+      '<div class="chat-row">' +
+        '<div style="min-width:0;flex:1">' +
+          '<div class="ci-title">' + prefix + esc(c.title) + badgeHtml(c.peer) + '</div>' +
+          '<div class="ci-last">' + esc(c.lastText || 'Нет сообщений') + '</div>' +
+        '</div>' +
+        badge +
+      '</div>';
+    el.onclick = () => openChat(c);
+    list.appendChild(el);
+  }
+}
+
+$('#mobileBackBtn').onclick = e => {
+  e.stopPropagation();
+  $('#app').classList.remove('chat-open');
+  state.activeChat = null;
+  renderChats();
+};
+
+async function openChat(chat) {
+  state.activeChat = chat;
+  state.unread[chat.id] = 0;
+  $('#app').classList.add('chat-open');
+
+  const av = $('#chatHeaderAvatar');
+  const sub = $('#chatHeaderSub');
+  if (chat.type === 'private' && chat.peer) {
+    av.src = chat.peer.avatar || DEFAULT_AVATAR;
+    av.classList.remove('hidden');
+    sub.textContent = chat.peer.username ? '@' + chat.peer.username : (chat.peer.anon_number || '');
+  } else {
+    av.classList.add('hidden');
+    const kind = chat.type === 'channel' ? 'Канал' : 'Группа';
+    const tag = chat.username ? ' • @' + chat.username : '';
+    sub.textContent = kind + ' • ' + (chat.membersCount || 1) + ' уч.' + tag;
   }
 
-  app.post('/api/register', async (req, res) => {
-    const { email, password, name } = req.body || {};
-    if (!email || !password || !name) return res.status(400).json({ error: 'Заполните все поля' });
-    if (password.length < 6) return res.status(400).json({ error: 'Пароль минимум 6 символов' });
-    const norm = email.trim().toLowerCase();
-    if (db.prepare('SELECT id FROM users WHERE email=?').get(norm)) return res.status(409).json({ error: 'Email уже занят' });
-    const isAdm = norm === ADMIN_EMAIL;
-    const hash = await bcrypt.hash(password, 10);
-    const id = Number(db.prepare(
-      'INSERT INTO users(email,name,password_hash,verified,is_premium,stars) VALUES(?,?,?,?,?,?)'
-    ).run(norm, name.trim(), hash, isAdm ? 1 : 0, isAdm ? 1 : 0, isAdm ? 10000 : 100).lastInsertRowid);
-    const user = db.prepare('SELECT * FROM users WHERE id=?').get(id);
-    res.json({ token: sign(user), user: pub(user, true) });
-  });
+  const prefix = chat.type === 'channel' ? '📢 ' : (chat.type === 'group' ? '👥 ' : '');
+  $('#chatHeaderTitle').innerHTML = prefix + esc(chat.title) + badgeHtml(chat.peer);
 
-  app.post('/api/login', async (req, res) => {
-    const { email, password } = req.body || {};
-    const norm = String(email || '').trim().toLowerCase();
-    const user = db.prepare('SELECT * FROM users WHERE email=?').get(norm);
-    if (!user) return res.status(401).json({ error: 'Неверный email или пароль' });
-    const ok = await bcrypt.compare(password || '', user.password_hash);
-    if (!ok) return res.status(401).json({ error: 'Неверный email или пароль' });
-    res.json({ token: sign(user), user: pub(user, true) });
-  });
+  const isReadOnlyChannel = chat.type === 'channel' && chat.ownerId !== state.user.id;
+  $('#sendForm').classList.toggle('hidden', isReadOnlyChannel);
+  $('#channelReadOnly').classList.toggle('hidden', !isReadOnlyChannel);
+  $('#openGiftBtn').classList.toggle('hidden', chat.type !== 'private');
 
-  app.get('/api/me', auth, (req, res) => res.json(pub(req.user, true)));
-  app.post('/api/profile', auth, async (req, res) => {
-    const name = String(req.body?.name || req.user.name).trim();
-    const bio = String(req.body?.bio ?? req.user.bio).trim();
-    const avatar = req.body?.avatar !== undefined ? String(req.body.avatar) : req.user.avatar;
-    const banner = req.body?.banner !== undefined ? String(req.body.banner) : req.user.banner;
-    const theme = req.body?.theme !== undefined ? String(req.body.theme) : (req.user.theme || 'dark');
-    const lang = req.body?.lang !== undefined ? String(req.body.lang) : (req.user.lang || 'ru');
-    const hideEmail = req.body?.hideEmail !== undefined ? (req.body.hideEmail ? 1 : 0) : (req.user.hide_email || 0);
-    const newEmail = req.body?.email ? String(req.body.email).trim().toLowerCase() : req.user.email;
-    const username = req.body?.username !== undefined
-      ? String(req.body.username).trim().replace(/^@/, '')
-      : req.user.username;
-    const newPass = String(req.body?.password || '').trim();
-
-    if (!name) return res.status(400).json({ error: 'Имя не может быть пустым' });
-    if (newEmail !== req.user.email) {
-      const emTaken = db.prepare('SELECT id FROM users WHERE LOWER(email)=LOWER(?) AND id!=?').get(newEmail, req.user.id);
-      if (emTaken) return res.status(409).json({ error: 'Этот Email уже занят' });
-    }
-    if (username) {
-      const taken = db.prepare('SELECT id FROM users WHERE LOWER(username)=LOWER(?) AND id!=?').get(username, req.user.id);
-      if (taken) return res.status(409).json({ error: 'Этот @username уже занят' });
-    }
-    if (newPass && newPass.length < 6) {
-      return res.status(400).json({ error: 'Новый пароль минимум 6 символов' });
-    }
-
-    if (newPass) {
-      const hash = await bcrypt.hash(newPass, 10);
-      db.prepare('UPDATE users SET name=?, email=?, bio=?, avatar=?, banner=?, theme=?, lang=?, hide_email=?, username=?, password_hash=? WHERE id=?')
-        .run(name, newEmail, bio, avatar, banner, theme, lang, hideEmail, username, hash, req.user.id);
-    } else {
-      db.prepare('UPDATE users SET name=?, email=?, bio=?, avatar=?, banner=?, theme=?, lang=?, hide_email=?, username=? WHERE id=?')
-        .run(name, newEmail, bio, avatar, banner, theme, lang, hideEmail, username, req.user.id);
-    }
-
-    const updated = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
-    res.json(pub(updated, true));
-  });
-
-  app.post('/api/premium/buy', auth, (req, res) => {
-    const price = 500;
-    if (req.user.is_premium || req.user.email === ADMIN_EMAIL) {
-      return res.status(400).json({ error: 'У вас уже активен MailGram Premium ⭐' });
-    }
-    if ((req.user.stars || 0) < price) {
-      return res.status(400).json({ error: 'Недостаточно звёзд ⭐' });
-    }
-    db.prepare('UPDATE users SET stars = stars - ?, is_premium = 1 WHERE id=?').run(price, req.user.id);
-    const updated = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
-    res.json({ ok: true, user: pub(updated, true) });
-  });
-
-  app.get('/api/users/:id', auth, (req, res) => {
-    const targetId = Number(req.params.id);
-    const u = db.prepare('SELECT * FROM users WHERE id=?').get(targetId);
-    if (!u) return res.status(404).json({ error: 'Не найден' });
-
-    const rate = (u.is_premium || u.email === ADMIN_EMAIL) ? 1.0 : 0.8;
-    const gifts = db.prepare(
-      "SELECT ug.id AS userGiftId, ug.gift_id, ug.created_at, COALESCE(u.name, 'Администратор') AS from_name FROM user_gifts ug LEFT JOIN users u ON u.id=ug.from_user_id WHERE ug.to_user_id=? ORDER BY ug.id DESC"
-    ).all(u.id).map(g => {
-      const info = ALL_GIFTS[g.gift_id] || {};
-      return { ...info, ...g, sellPrice: Math.floor((info.price || 0) * rate) };
-    });
-
-    res.json({ user: pub(u, targetId === req.user.id), gifts });
-  });
-
-  app.get('/api/gifts/shop', auth, (req, res) => res.json(Object.values(GIFTS)));
-
-  app.post('/api/gifts/send', auth, (req, res) => {
-    const toUserId = Number(req.body?.toUserId);
-    const gift = GIFTS[req.body?.giftId];
-    if (!gift) return res.status(400).json({ error: 'Неизвестный подарок' });
-    if (toUserId === req.user.id) return res.status(400).json({ error: 'Нельзя дарить самому себе' });
-
-    const peer = db.prepare('SELECT * FROM users WHERE id=?').get(toUserId);
-    if (!peer) return res.status(404).json({ error: 'Получатель не найден' });
-    if ((req.user.stars || 0) < gift.price) return res.status(400).json({ error: 'Недостаточно звёзд ⭐' });
-
-    db.prepare('UPDATE users SET stars = stars - ? WHERE id=?').run(gift.price, req.user.id);
-    const now = Date.now();
-    const ugId = Number(db.prepare('INSERT INTO user_gifts(to_user_id,from_user_id,gift_id,created_at) VALUES(?,?,?,?)')
-      .run(toUserId, req.user.id, gift.id, now).lastInsertRowid);
-
-    let chat = db.prepare(
-      "SELECT c.id FROM chats c JOIN chat_members a ON a.chat_id=c.id AND a.user_id=? JOIN chat_members b ON b.chat_id=c.id AND b.user_id=? WHERE COALESCE(c.type,'private')='private' LIMIT 1"
-    ).get(req.user.id, toUserId);
-
-    if (!chat) {
-      const cid = Number(db.prepare("INSERT INTO chats(title,type) VALUES(NULL,'private')").run().lastInsertRowid);
-      db.prepare('INSERT INTO chat_members(chat_id,user_id) VALUES(?,?)').run(cid, req.user.id);
-      db.prepare('INSERT INTO chat_members(chat_id,user_id) VALUES(?,?)').run(cid, toUserId);
-      chat = { id: cid };
-    }
-
-    const giftTitle = 'Подарок: ' + gift.name + ' #' + ugId;
-    const msgId = Number(db.prepare(
-      'INSERT INTO messages(chat_id,user_id,text,gift_id,gift_num,created_at) VALUES(?,?,?,?,?,?)'
-    ).run(chat.id, req.user.id, giftTitle, gift.id, ugId, now).lastInsertRowid);
-
-    const msg = {
-      id: msgId, chat_id: chat.id, user_id: req.user.id,
-      user_name: req.user.name, text: giftTitle,
-      gift: { ...gift, userGiftId: ugId }, reactions: {}, edited: 0, created_at: now
-    };
-    io.to('chat:' + chat.id).emit('message', msg);
-    io.to('user:' + req.user.id).emit('chat:update', { chatId: chat.id, lastText: '🎁 ' + gift.name + ' #' + ugId, lastAt: now, fromId: req.user.id });
-    io.to('user:' + toUserId).emit('chat:update', { chatId: chat.id, lastText: '🎁 ' + gift.name + ' #' + ugId, lastAt: now, fromId: req.user.id });
-
-    const meUpdated = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
-    res.json({ ok: true, stars: meUpdated.stars, chatId: chat.id });
-  });
-
-  app.post('/api/gifts/sell', auth, (req, res) => {
-    const ugId = Number(req.body?.userGiftId);
-    const row = db.prepare('SELECT * FROM user_gifts WHERE id=? AND to_user_id=?').get(ugId, req.user.id);
-    if (!row) return res.status(404).json({ error: 'Подарок не найден' });
-    const gift = ALL_GIFTS[row.gift_id];
-    const rate = (req.user.is_premium || req.user.email === ADMIN_EMAIL) ? 1.0 : 0.8;
-    const refund = Math.floor((gift?.price || 0) * rate);
-
-    db.prepare('DELETE FROM user_gifts WHERE id=?').run(ugId);
-    db.prepare('UPDATE users SET stars = stars + ? WHERE id=?').run(refund, req.user.id);
-    const updated = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
-    res.json({ ok: true, stars: updated.stars, refund });
-  });
-
-  app.post('/api/admin/grant', auth, (req, res) => {
-    if (req.user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Нет прав' });
-    const q = String(req.body?.query || req.body?.email || '').trim().toLowerCase().replace(/^@/, '');
-    const target = db.prepare(
-      'SELECT * FROM users WHERE LOWER(email)=? OR LOWER(username)=? OR LOWER(nft_username)=?'
-    ).get(q, q, q);
-    if (!target) return res.status(404).json({ error: 'Пользователь по этому @username или Email не найден' });
-
-    const addStars = Number(req.body?.stars || 0);
-    const username = String(req.body?.username || '').trim().replace(/^@/, '');
-    const nft = String(req.body?.nft_username || '').trim().replace(/^@/, '');
-    const anonNumber = String(req.body?.anon_number || '').trim();
-    const verified = req.body?.verified ? 1 : 0;
-    const isPremium = req.body?.is_premium ? 1 : 0;
-    const giftId = String(req.body?.gift_id || '').trim();
-
-    db.prepare(
-      "UPDATE users SET stars = stars + ?, verified = ?, is_premium = ?, username = CASE WHEN ? != '' THEN ? ELSE username END, nft_username = CASE WHEN ? != '' THEN ? ELSE nft_username END, anon_number = CASE WHEN ? != '' THEN ? ELSE anon_number END WHERE id=?"
-    ).run(addStars, verified, isPremium, username, username, nft, nft, anonNumber, anonNumber, target.id);
-
-    let grantedGiftNum = 0;
-    if (giftId && ALL_GIFTS[giftId]) {
-      grantedGiftNum = Number(db.prepare('INSERT INTO user_gifts(to_user_id,from_user_id,gift_id,created_at) VALUES(?,?,?,?)')
-        .run(target.id, req.user.id, giftId, Date.now()).lastInsertRowid);
-    }
-
-    const updated = db.prepare('SELECT * FROM users WHERE id=?').get(target.id);
-    res.json({ ok: true, user: pub(updated, true), giftNum: grantedGiftNum });
-  });
-  app.get('/api/chats', auth, (req, res) => {
-    const rows = db.prepare(
-      "SELECT c.id, c.title, c.type, c.owner_id, c.username, (SELECT text FROM messages m WHERE m.chat_id=c.id ORDER BY m.id DESC LIMIT 1) AS last_text, (SELECT created_at FROM messages m WHERE m.chat_id=c.id ORDER BY m.id DESC LIMIT 1) AS last_at FROM chats c JOIN chat_members cm ON cm.chat_id=c.id WHERE cm.user_id=? ORDER BY COALESCE(last_at,0) DESC"
-    ).all(req.user.id);
-
-    res.json(rows.map(r => {
-      const members = db.prepare('SELECT u.* FROM users u JOIN chat_members cm ON cm.user_id=u.id WHERE cm.chat_id=?').all(r.id);
-      const isPrivate = (r.type || 'private') === 'private';
-      const other = isPrivate ? members.find(m => m.id !== req.user.id) : null;
-      return {
-        id: r.id, type: r.type || 'private', ownerId: r.owner_id || 0, username: r.username || '',
-        membersCount: members.length, title: isPrivate ? (other ? other.name : 'Чат') : r.title,
-        peer: other ? pub(other, false) : null, lastText: r.last_text || '', lastAt: r.last_at || 0
-      };
-    }));
-  });
-
-  app.post('/api/chats/create-room', auth, (req, res) => {
-    const title = String(req.body?.title || '').trim();
-    const type = req.body?.type === 'channel' ? 'channel' : 'group';
-    const username = String(req.body?.username || '').trim().replace(/^@/, '').toLowerCase();
-    if (!title) return res.status(400).json({ error: 'Введите название' });
-    if (username) {
-      const uEx = db.prepare('SELECT id FROM users WHERE LOWER(username)=? OR LOWER(nft_username)=?').get(username, username);
-      const cEx = db.prepare('SELECT id FROM chats WHERE LOWER(username)=?').get(username);
-      if (uEx || cEx) return res.status(409).json({ error: 'Этот @username уже занят' });
-    }
-    const chatId = Number(db.prepare('INSERT INTO chats(title,type,owner_id,username) VALUES(?,?,?,?)').run(title, type, req.user.id, username).lastInsertRowid);
-    db.prepare('INSERT INTO chat_members(chat_id,user_id) VALUES(?,?)').run(chatId, req.user.id);
-    res.json({ id: chatId });
-  });
-
-  app.post('/api/chats', auth, (req, res) => {
-    const q = String(req.body?.query || req.body?.email || '').trim().toLowerCase().replace(/^@/, '');
-    const room = db.prepare("SELECT * FROM chats WHERE LOWER(username)=? AND type IN ('group','channel')").get(q);
-    if (room) {
-      const inRoom = db.prepare('SELECT 1 FROM chat_members WHERE chat_id=? AND user_id=?').get(room.id, req.user.id);
-      if (!inRoom) db.prepare('INSERT INTO chat_members(chat_id,user_id) VALUES(?,?)').run(room.id, req.user.id);
-      return res.json({ id: room.id });
-    }
-    const peer = db.prepare('SELECT * FROM users WHERE LOWER(email)=? OR LOWER(username)=? OR LOWER(nft_username)=? OR LOWER(anon_number)=?').get(q, q, q, q);
-    if (!peer) return res.status(404).json({ error: 'Пользователь, группа или канал не найдены' });
-    if (peer.id === req.user.id) return res.status(400).json({ error: 'Нельзя создать чат с собой' });
-    const existing = db.prepare("SELECT c.id FROM chats c JOIN chat_members a ON a.chat_id=c.id AND a.user_id=? JOIN chat_members b ON b.chat_id=c.id AND b.user_id=? WHERE COALESCE(c.type,'private')='private' LIMIT 1").get(req.user.id, peer.id);
-    if (existing) return res.json({ id: existing.id });
-    const chatId = Number(db.prepare("INSERT INTO chats(title,type) VALUES(NULL,'private')").run().lastInsertRowid);
-    db.prepare('INSERT INTO chat_members(chat_id,user_id) VALUES(?,?)').run(chatId, req.user.id);
-    db.prepare('INSERT INTO chat_members(chat_id,user_id) VALUES(?,?)').run(chatId, peer.id);
-    res.json({ id: chatId });
-  });
-
-  app.get('/api/messages/:chatId', auth, (req, res) => {
-    const chatId = Number(req.params.chatId);
-    if (!db.prepare('SELECT 1 FROM chat_members WHERE chat_id=? AND user_id=?').get(chatId, req.user.id))
-      return res.status(403).json({ error: 'Нет доступа' });
-    const msgs = db.prepare('SELECT m.id, m.text, m.gift_id, m.gift_num, m.media_type, m.media_data, m.edited, m.reactions, m.created_at, m.user_id, u.name AS user_name FROM messages m JOIN users u ON u.id=m.user_id WHERE m.chat_id=? ORDER BY m.id ASC').all(chatId).map(m => {
-      let rx = {};
-      try { rx = JSON.parse(m.reactions || '{}'); } catch {}
-      const gInfo = m.gift_id ? ALL_GIFTS[m.gift_id] : null;
-      return { ...m, reactions: rx, gift: gInfo ? { ...gInfo, userGiftId: m.gift_num || 0 } : null };
-    });
-    res.json(msgs);
-  });
-
-  io.use((socket, next) => {
-    try {
-      const { id } = jwt.verify(socket.handshake.auth?.token, JWT_SECRET);
-      const user = db.prepare('SELECT * FROM users WHERE id=?').get(id);
-      if (!user) throw new Error();
-      socket.user = user;
-      next();
-    } catch { next(new Error('unauthorized')); }
-  });
-
-  io.on('connection', socket => {
-    socket.join('user:' + socket.user.id);
-    socket.on('join', chatId => {
-      if (db.prepare('SELECT 1 FROM chat_members WHERE chat_id=? AND user_id=?').get(chatId, socket.user.id)) socket.join('chat:' + chatId);
-    });
-    socket.on('message', ({ chatId, text, mediaType, mediaData }) => {
-      chatId = Number(chatId); text = String(text || '').trim(); mediaType = String(mediaType || ''); mediaData = String(mediaData || '');
-      if ((!text && !mediaData) || !chatId) return;
-      if (!db.prepare('SELECT 1 FROM chat_members WHERE chat_id=? AND user_id=?').get(chatId, socket.user.id)) return;
-      const chatInfo = db.prepare('SELECT * FROM chats WHERE id=?').get(chatId);
-      if (chatInfo?.type === 'channel' && chatInfo.owner_id !== socket.user.id) return;
-      const previewText = mediaType === 'image' ? '🖼️ Фото' : (mediaType === 'audio' ? '🎤 Голосовое сообщение' : text);
-      const createdAt = Date.now();
-      const id = Number(db.prepare('INSERT INTO messages(chat_id,user_id,text,media_type,media_data,created_at) VALUES(?,?,?,?,?,?)').run(chatId, socket.user.id, previewText, mediaType, mediaData, createdAt).lastInsertRowid);
-      const msg = { id, chat_id: chatId, user_id: socket.user.id, user_name: socket.user.name, text: previewText, media_type: mediaType, media_data: mediaData, edited: 0, reactions: {}, created_at: createdAt };
-      io.to('chat:' + chatId).emit('message', msg);
-      for (const m of db.prepare('SELECT user_id FROM chat_members WHERE chat_id=?').all(chatId)) {
-        io.to('user:' + m.user_id).emit('chat:update', { chatId, lastText: previewText, lastAt: createdAt, fromId: socket.user.id });
-      }
-    });
-    socket.on('message:edit', ({ msgId, text }) => {
-      msgId = Number(msgId); text = String(text || '').trim();
-      if (!msgId || !text) return;
-      const m = db.prepare('SELECT * FROM messages WHERE id=? AND user_id=?').get(msgId, socket.user.id);
-      if (!m || m.gift_id || m.media_type) return;
-      db.prepare('UPDATE messages SET text=?, edited=1 WHERE id=?').run(text, msgId);
-      io.to('chat:' + m.chat_id).emit('message:edited', { id: msgId, text });
-    });
-    socket.on('message:delete', ({ msgId }) => {
-      msgId = Number(msgId);
-      const m = db.prepare('SELECT * FROM messages WHERE id=? AND user_id=?').get(msgId, socket.user.id);
-      if (!m) return;
-      db.prepare('DELETE FROM messages WHERE id=?').run(msgId);
-      io.to('chat:' + m.chat_id).emit('message:deleted', { id: msgId });
-    });
-    socket.on('message:react', ({ msgId, emoji }) => {
-      msgId = Number(msgId); emoji = String(emoji || '').trim();
-      if (!msgId || !emoji) return;
-      const m = db.prepare('SELECT * FROM messages WHERE id=?').get(msgId);
-      if (!m) return;
-      let rx = {};
-      try { rx = JSON.parse(m.reactions || '{}'); } catch {}
-      rx[emoji] = (rx[emoji] || 0) + 1;
-      db.prepare('UPDATE messages SET reactions=? WHERE id=?').run(JSON.stringify(rx), msgId);
-      io.to('chat:' + m.chat_id).emit('message:reacted', { id: msgId, reactions: rx });
-    });
-  });
-
-  server.listen(PORT, '0.0.0.0', () => console.log('Server running on port ' + PORT));
+  renderChats();
+  state.socket.emit('join', chat.id);
+  const msgs = await api('/messages/' + chat.id);
+  const box = $('#messages');
+  box.innerHTML = '';
+  msgs.forEach(appendMessage);
+  box.scrollTop = box.scrollHeight;
 }
-start();
+
+function buildVoicePlayer(src) {
+  const wrap = document.createElement('div');
+  wrap.className = 'tg-voice';
+  const heights = new Array(22).fill(0).map((_, i) => 6 + (i * 5) % 16);
+  const bars = heights.map(h => '<span style="height:' + h + 'px"></span>').join('');
+  wrap.innerHTML =
+    '<button type="button" class="tg-voice-play">▶</button>' +
+    '<div class="tg-wave">' + bars + '</div>' +
+    '<span class="tg-voice-time">0:00</span>';
+  const audio = new Audio(src);
+  const btn = wrap.querySelector('.tg-voice-play');
+  const timeEl = wrap.querySelector('.tg-voice-time');
+
+  const fmt = sec => {
+    if (!isFinite(sec)) return '0:00';
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  };
+  audio.onloadedmetadata = () => { timeEl.textContent = fmt(audio.duration); };
+  audio.ontimeupdate = () => { timeEl.textContent = fmt(audio.currentTime); };
+  audio.onended = () => {
+    wrap.classList.remove('playing');
+    btn.textContent = '▶';
+    timeEl.textContent = fmt(audio.duration);
+  };
+  btn.onclick = e => {
+    e.stopPropagation();
+    if (audio.paused) {
+      audio.play().catch(() => alert('Не удалось воспроизвести аудио'));
+      wrap.classList.add('playing');
+      btn.textContent = '⏸';
+    } else {
+      audio.pause();
+      wrap.classList.remove('playing');
+      btn.textContent = '▶';
+    }
+  };
+  return wrap;
+}
+
+function appendMessage(m) {
+  const box = $('#messages');
+  const el = document.createElement('div');
+  el.className = 'msg' + (m.user_id === state.user.id ? ' mine' : '');
+  el.dataset.msgId = m.id;
+
+  const bubble = document.createElement('div');
+  if (m.gift) {
+    const numStr = m.gift.userGiftId ? ' #' + m.gift.userGiftId : '';
+    bubble.className = 'bubble gift-bubble';
+    bubble.innerHTML =
+      '<span class="gift-emoji">' + m.gift.emoji + '</span>' +
+      '<div style="font-weight:700">' + esc(m.gift.name) + numStr + '</div>' +
+      '<div class="gift-label">Подарок от ' + esc(m.user_name) + '</div>';
+  } else if (m.media_type === 'image' && m.media_data) {
+    bubble.className = 'bubble';
+    bubble.innerHTML = '<div class="author">' + esc(m.user_name) + '</div><img class="chat-photo" src="' + m.media_data + '" alt="Фото">';
+  } else if (m.media_type === 'audio' && m.media_data) {
+    bubble.className = 'bubble';
+    bubble.innerHTML = '<div class="author">' + esc(m.user_name) + '</div>';
+    bubble.appendChild(buildVoicePlayer(m.media_data));
+  } else {
+    bubble.className = 'bubble';
+    const ed = m.edited ? '<span class="edited-mark">изм.</span>' : '';
+    bubble.innerHTML = '<div class="author">' + esc(m.user_name) + '</div><div class="text msg-body-text">' + esc(m.text) + ed + '</div>';
+  }
+
+  const rxRow = document.createElement('div');
+  rxRow.className = 'reactions-row';
+  rxRow.innerHTML = renderReactionsHtml(m.reactions);
+  bubble.appendChild(rxRow);
+
+  bubble.onclick = () => {
+    state.selectedMsg = m;
+    const isMine = m.user_id === state.user.id;
+    const canEdit = isMine && !m.gift && !m.media_type;
+    $('#ownerMsgBtns').classList.toggle('hidden', !isMine);
+    $('#editMsgBtn').classList.toggle('hidden', !canEdit);
+    $('#msgActionModal').classList.remove('hidden');
+  };
+
+  el.appendChild(bubble);
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+/* ---------- Действия с сообщениями (редактировать / удалить / реакции) ---------- */
+document.querySelectorAll('#reactPicker button').forEach(btn => {
+  btn.onclick = () => {
+    if (!state.selectedMsg) return;
+    state.socket.emit('message:react', { msgId: state.selectedMsg.id, emoji: btn.dataset.react });
+    $('#msgActionModal').classList.add('hidden');
+  };
+});
+
+$('#editMsgBtn').onclick = () => {
+  if (!state.selectedMsg) return;
+  const next = prompt('Изменить сообщение:', state.selectedMsg.text);
+  if (next && next.trim()) {
+    state.socket.emit('message:edit', { msgId: state.selectedMsg.id, text: next.trim() });
+  }
+  $('#msgActionModal').classList.add('hidden');
+};
+
+$('#deleteMsgBtn').onclick = () => {
+  if (!state.selectedMsg) return;
+  if (confirm('Удалить это сообщение?')) {
+    state.socket.emit('message:delete', { msgId: state.selectedMsg.id });
+  }
+  $('#msgActionModal').classList.add('hidden');
+};
+
+/* ---------- Отправка текста и Редактор фото перед отправкой ---------- */
+$('#sendForm').onsubmit = e => {
+  e.preventDefault();
+  const input = $('#msgInput');
+  const text = input.value.trim();
+  if (!text || !state.activeChat) return;
+  state.socket.emit('message', { chatId: state.activeChat.id, text });
+  input.value = '';
+};
+
+let rawPhotoImg = null;
+let isDrawing = false;
+const photoCanvas = $('#photoCanvas');
+const photoCtx = photoCanvas.getContext('2d');
+
+function drawBasePhoto() {
+  if (!rawPhotoImg) return;
+  const maxW = 520;
+  const scale = rawPhotoImg.width > maxW ? maxW / rawPhotoImg.width : 1;
+  photoCanvas.width = Math.round(rawPhotoImg.width * scale);
+  photoCanvas.height = Math.round(rawPhotoImg.height * scale);
+  photoCtx.drawImage(rawPhotoImg, 0, 0, photoCanvas.width, photoCanvas.height);
+}
+
+$('#attachPhotoBtn').onclick = () => {
+  if (!state.activeChat) return alert('Сначала выберите чат');
+  $('#photoInput').click();
+};
+
+$('#photoInput').onchange = e => {
+  const file = e.target.files.item(0);
+  if (!file || !state.activeChat) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      rawPhotoImg = img;
+      drawBasePhoto();
+      $('#photoCaptionInput').value = '';
+      $('#photoEditorModal').classList.remove('hidden');
+    };
+    img.src = reader.result;
+    e.target.value = '';
+  };
+  reader.readAsDataURL(file);
+};
+
+function getCanvasPos(ev) {
+  const rect = photoCanvas.getBoundingClientRect();
+  const clientX = ev.touches ? ev.touches.item(0).clientX : ev.clientX;
+  const clientY = ev.touches ? ev.touches.item(0).clientY : ev.clientY;
+  return {
+    x: (clientX - rect.left) * (photoCanvas.width / rect.width),
+    y: (clientY - rect.top) * (photoCanvas.height / rect.height)
+  };
+}
+
+photoCanvas.onpointerdown = e => {
+  isDrawing = true;
+  const pos = getCanvasPos(e);
+  photoCtx.strokeStyle = $('#drawColor').value;
+  photoCtx.lineWidth = 4;
+  photoCtx.lineCap = 'round';
+  photoCtx.beginPath();
+  photoCtx.moveTo(pos.x, pos.y);
+};
+photoCanvas.onpointermove = e => {
+  if (!isDrawing) return;
+  const pos = getCanvasPos(e);
+  photoCtx.lineTo(pos.x, pos.y);
+  photoCtx.stroke();
+};
+window.addEventListener('pointerup', () => { isDrawing = false; });
+
+$('#addTextBtn').onclick = () => {
+  const txt = $('#photoCaptionInput').value.trim();
+  if (!txt) return;
+  photoCtx.font = 'bold 26px sans-serif';
+  photoCtx.textAlign = 'center';
+  photoCtx.lineWidth = 4;
+  photoCtx.strokeStyle = '#000';
+  photoCtx.strokeText(txt, photoCanvas.width / 2, photoCanvas.height - 24);
+  photoCtx.fillStyle = $('#drawColor').value;
+  photoCtx.fillText(txt, photoCanvas.width / 2, photoCanvas.height - 24);
+  $('#photoCaptionInput').value = '';
+};
+
+$('#resetPhotoBtn').onclick = drawBasePhoto;
+
+$('#sendEditedPhotoBtn').onclick = () => {
+  if (!state.activeChat) return;
+  const dataUrl = photoCanvas.toDataURL('image/jpeg', 0.85);
+  state.socket.emit('message', {
+    chatId: state.activeChat.id,
+    mediaType: 'image',
+    mediaData: dataUrl
+  });
+  $('#photoEditorModal').classList.add('hidden');
+};
+
+/* ---------- Голосовые сообщения (запись) ---------- */
+let mediaRecorder = null;
+let audioChunks = [];
+
+$('#voiceBtn').onclick = async () => {
+  if (!state.activeChat) return alert('Сначала выберите чат');
+  const btn = $('#voiceBtn');
+
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+    btn.classList.remove('voice-rec');
+    btn.textContent = '🎤';
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioChunks = [];
+    const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+      : (MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '');
+    mediaRecorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+
+    mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
+    mediaRecorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      const type = mediaRecorder.mimeType || 'audio/webm';
+      const blob = new Blob(audioChunks, { type });
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (state.activeChat && reader.result) {
+          state.socket.emit('message', {
+            chatId: state.activeChat.id,
+            mediaType: 'audio',
+            mediaData: reader.result
+          });
+        }
+      };
+      reader.readAsDataURL(blob);
+    };
+    mediaRecorder.start(200);
+    btn.classList.add('voice-rec');
+    btn.textContent = '⏹️';
+  } catch {
+    alert('Разрешите доступ к микрофону в настройках браузера / приложения');
+  }
+};
+
+/* ---------- Поиск и создание групп / каналов ---------- */
+$('#newChatForm').onsubmit = async e => {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    const { id } = await api('/chats', { method: 'POST', body: JSON.stringify({ query: f.query.value }) });
+    f.reset();
+    await loadChats();
+    const chat = state.chats.find(c => c.id === id);
+    if (chat) openChat(chat);
+  } catch (err) { alert(err.message); }
+};
+
+$('#openCreateRoomBtn').onclick = () => $('#createRoomModal').classList.remove('hidden');
+
+$('#createRoomForm').onsubmit = async e => {
+  e.preventDefault();
+  try {
+    const { id } = await api('/chats/create-room', { method: 'POST', body: JSON.stringify({
+      type: $('#roomTypeSelect').value,
+      title: $('#roomTitleInput').value,
+      username: $('#roomUsernameInput').value
+    })});
+    e.target.reset();
+    $('#createRoomModal').classList.add('hidden');
+    await loadChats();
+    const chat = state.chats.find(c => c.id === id);
+    if (chat) openChat(chat);
+  } catch (err) { alert(err.message); }
+};
+
+/* ---------- Свайпаемый профиль, баннер под аватаркой и продажа подарков (#ID) ---------- */
+document.querySelectorAll('[data-close]').forEach(btn => {
+  btn.onclick = () => $('#' + btn.dataset.close).classList.add('hidden');
+});
+
+function setHeroBanner(el, bannerUrl) {
+  if (bannerUrl) {
+    el.style.backgroundImage = 'url("' + bannerUrl + '")';
+  } else {
+    el.style.backgroundImage = 'linear-gradient(135deg, #1e3a8a, #581c87)';
+  }
+}
+
+function switchMyProfileTab(tab) {
+  document.querySelectorAll('[data-my-tab]').forEach(b => b.classList.toggle('active', b.dataset.myTab === tab));
+  $('#myTabGifts').classList.toggle('hidden', tab !== 'gifts');
+  $('#myTabInfo').classList.toggle('hidden', tab !== 'info');
+}
+
+document.querySelectorAll('[data-my-tab]').forEach(btn => {
+  btn.onclick = () => switchMyProfileTab(btn.dataset.myTab);
+});
+
+let touchStartX = 0;
+let touchStartY = 0;
+const myCard = $('#myProfileCard');
+myCard.addEventListener('touchstart', e => {
+  touchStartX = e.touches.item(0).clientX;
+  touchStartY = e.touches.item(0).clientY;
+}, { passive: true });
+myCard.addEventListener('touchend', e => {
+  const dx = e.changedTouches.item(0).clientX - touchStartX;
+  const dy = e.changedTouches.item(0).clientY - touchStartY;
+  if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy)) {
+    switchMyProfileTab(dx < 0 ? 'info' : 'gifts');
+  } else if (dy > 110 && Math.abs(dy) > Math.abs(dx) && myCard.scrollTop === 0) {
+    $('#myProfileModal').classList.add('hidden');
+  }
+}, { passive: true });
+
+function renderGiftsGrid(container, gifts, canSell = false) {
+  container.innerHTML = gifts.length ? '' : '<div style="color:var(--muted);font-size:13px">Пока нет подарков</div>';
+  for (const g of gifts) {
+    const card = document.createElement('div');
+    card.className = 'gift-card';
+    const numStr = g.userGiftId ? ' #' + g.userGiftId : '';
+    const sellHtml = canSell && g.sellPrice > 0
+      ? '<button type="button" class="sell-btn" data-sell="' + g.userGiftId + '">Продать за +' + g.sellPrice + ' ⭐</button>'
+      : '';
+    card.innerHTML =
+      '<div class="g-ico">' + (g.emoji || '🎁') + '</div>' +
+      '<div class="g-name">' + esc((g.name || 'Подарок') + numStr) + '</div>' +
+      '<div class="g-sub">от ' + esc(g.from_name) + '</div>' +
+      sellHtml;
+    container.appendChild(card);
+  }
+
+  if (canSell) {
+    container.querySelectorAll('[data-sell]').forEach(btn => {
+      btn.onclick = async () => {
+        if (!confirm('Продать этот подарок за звёзды?')) return;
+        try {
+          const res = await api('/gifts/sell', { method: 'POST', body: JSON.stringify({
+            userGiftId: Number(btn.dataset.sell)
+          })});
+          state.user.stars = res.stars;
+          renderMeBar();
+          $('#openMyProfile').click();
+        } catch (err) { alert(err.message); }
+      };
+    });
+  }
+}
+$('#openMyProfile').onclick = async () => {
+  const { user, gifts } = await api('/users/' + state.user.id);
+  state.user = user;
+  renderMeBar();
+
+  setHeroBanner($('#profHeroBanner'), user.banner);
+  $('#profAvatar').src = user.avatar || DEFAULT_AVATAR;
+  $('#profNameTitle').innerHTML = esc(user.name) + badgeHtml(user);
+  $('#profUsernames').innerHTML = tagsHtml(user);
+  $('#profBioText').textContent = user.bio || 'Нет описания';
+  $('#profEmailText').textContent = user.email + (user.hideEmail ? ' (скрыта от других)' : '');
+  $('#profStars').textContent = user.stars;
+  $('#myGiftsCount').textContent = gifts.length;
+  renderGiftsGrid($('#myGiftsGrid'), gifts, true);
+  switchMyProfileTab('gifts');
+  $('#myProfileModal').classList.remove('hidden');
+};
+
+/* ---------- Отдельная Админ-панель и Настройки (Язык, Почта, Скрытие почты) ---------- */
+$('#openAdminBtn').onclick = () => {
+  $('#admQuery').value = state.user.username ? '@' + state.user.username : state.user.email;
+  $('#admVerified').checked = state.user.verified;
+  $('#admPremium').checked = state.user.isPremium;
+  $('#adminModal').classList.remove('hidden');
+};
+
+$('#adminForm').onsubmit = async e => {
+  e.preventDefault();
+  try {
+    const res = await api('/admin/grant', { method: 'POST', body: JSON.stringify({
+      query: $('#admQuery').value,
+      stars: Number($('#admStars').value || 0),
+      username: $('#admUsername').value,
+      nft_username: $('#admNft').value,
+      anon_number: $('#admAnonNumber').value,
+      gift_id: $('#admGiftSelect').value,
+      verified: $('#admVerified').checked,
+      is_premium: $('#admPremium').checked
+    })});
+    if (res.user.id === state.user.id) {
+      state.user = res.user;
+      renderMeBar();
+    }
+    $('#admStars').value = '';
+    $('#admGiftSelect').value = '';
+    const extra = res.giftNum ? ' (подарок #' + res.giftNum + ')' : '';
+    alert('Успешно выдано пользователю ' + res.user.name + extra + '!');
+  } catch (err) { alert(err.message); }
+};
+function openSettingsModal() {
+  $('#setAvatar').src = state.user.avatar || DEFAULT_AVATAR;
+  $('#setNameInput').value = state.user.name;
+  $('#setBioInput').value = state.user.bio || '';
+  $('#setUsernameInput').value = state.user.username || '';
+  $('#setEmailInput').value = state.user.email || '';
+  $('#setHideEmail').checked = Boolean(state.user.hideEmail);
+  $('#setLangSelect').value = state.user.lang || 'ru';
+  $('#setThemeSelect').value = state.user.theme || 'dark';
+  $('#setPassInput').value = '';
+
+  if (state.user.isPremium) {
+    $('#buyPremBtn').textContent = 'Активен ✓';
+    $('#buyPremBtn').disabled = true;
+  } else {
+    $('#buyPremBtn').textContent = 'Купить 500 ⭐';
+    $('#buyPremBtn').disabled = false;
+  }
+  $('#settingsModal').classList.remove('hidden');
+}
+
+$('#openSettingsBtn').onclick = openSettingsModal;
+$('#goSettingsFromProf').onclick = () => {
+  $('#myProfileModal').classList.add('hidden');
+  openSettingsModal();
+};
+
+$('#buyPremBtn').onclick = async () => {
+  if (!confirm('Купить MailGram Premium за 500 ⭐?')) return;
+  try {
+    const res = await api('/premium/buy', { method: 'POST' });
+    state.user = res.user;
+    renderMeBar();
+    openSettingsModal();
+    alert('Поздравляем! MailGram Premium ⭐ активирован!');
+  } catch (err) { alert(err.message); }
+};
+
+$('#avatarInput').onchange = e => {
+  const file = e.target.files.item(0);
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const updated = await api('/profile', { method: 'POST', body: JSON.stringify({ avatar: reader.result }) });
+      state.user = updated;
+      $('#setAvatar').src = updated.avatar;
+      renderMeBar();
+    } catch (err) { alert(err.message); }
+  };
+  reader.readAsDataURL(file);
+};
+
+$('#bannerInput').onchange = e => {
+  const file = e.target.files.item(0);
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const updated = await api('/profile', { method: 'POST', body: JSON.stringify({ banner: reader.result }) });
+      state.user = updated;
+      alert('Баннер профиля обновлён!');
+    } catch (err) { alert(err.message); }
+  };
+  reader.readAsDataURL(file);
+};
+
+$('#setThemeSelect').onchange = () => applyTheme($('#setThemeSelect').value);
+$('#setLangSelect').onchange = () => applyLang($('#setLangSelect').value);
+
+$('#settingsForm').onsubmit = async e => {
+  e.preventDefault();
+  try {
+    const updated = await api('/profile', { method: 'POST', body: JSON.stringify({
+      name: $('#setNameInput').value,
+      bio: $('#setBioInput').value,
+      username: $('#setUsernameInput').value,
+      email: $('#setEmailInput').value,
+      hideEmail: $('#setHideEmail').checked,
+      lang: $('#setLangSelect').value,
+      theme: $('#setThemeSelect').value,
+      password: $('#setPassInput').value
+    })});
+    state.user = updated;
+    renderMeBar();
+    $('#setPassInput').value = '';
+    alert('Настройки сохранены!');
+  } catch (err) { alert(err.message); }
+};
+
+$('#chatHeader').onclick = async () => {
+  if (!state.activeChat?.peer) return;
+  const { user, gifts } = await api('/users/' + state.activeChat.peer.id);
+  setHeroBanner($('#peerHeroBanner'), user.banner);
+  $('#peerAvatar').src = user.avatar || DEFAULT_AVATAR;
+  $('#peerNameTitle').innerHTML = esc(user.name) + badgeHtml(user);
+  $('#peerUsernames').innerHTML = tagsHtml(user);
+  $('#peerBio').textContent = user.bio || 'Нет описания';
+  $('#peerEmailBox').textContent = user.email ? ('Почта: ' + user.email) : 'Почта скрыта настройками приватности';
+  $('#peerGiftsCount').textContent = gifts.length;
+  renderGiftsGrid($('#peerGiftsGrid'), gifts, false);
+  state.giftTargetUserId = user.id;
+  $('#peerProfileModal').classList.remove('hidden');
+};
+
+function openGiftShop(targetUserId) {
+  state.giftTargetUserId = targetUserId;
+  $('#giftModalStars').textContent = state.user.stars;
+  const grid = $('#shopGrid');
+  grid.innerHTML = '';
+  for (const g of state.shop) {
+    const card = document.createElement('div');
+    card.className = 'gift-card shop-item';
+    card.innerHTML =
+      '<div class="g-ico">' + g.emoji + '</div>' +
+      '<div class="g-name">' + esc(g.name) + '</div>' +
+      '<div class="g-sub" style="color:#fbbf24;font-weight:700">' + g.price + ' ⭐</div>';
+    card.onclick = async () => {
+      try {
+        const res = await api('/gifts/send', { method: 'POST', body: JSON.stringify({
+          toUserId: state.giftTargetUserId, giftId: g.id
+        })});
+        state.user.stars = res.stars;
+        renderMeBar();
+        $('#giftModal').classList.add('hidden');
+        $('#peerProfileModal').classList.add('hidden');
+      } catch (err) { alert(err.message); }
+    };
+    grid.appendChild(card);
+  }
+  $('#giftModal').classList.remove('hidden');
+}
+
+$('#openGiftBtn').onclick = () => {
+  if (!state.activeChat?.peer) return alert('Сначала выберите чат с собеседником');
+  openGiftShop(state.activeChat.peer.id);
+};
+$('#peerGiftBtn').onclick = () => openGiftShop(state.giftTargetUserId);
+
+(async function init() {
+  if (!state.token) return;
+  try {
+    state.user = await api('/me');
+    await enterApp();
+  } catch { logout(); }
+})();
