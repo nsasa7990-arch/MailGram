@@ -14,51 +14,24 @@ const ADMIN_EMAIL = 'licciy093@gmail.com';
 const GH_TOKEN = (process.env.GITHUB_TOKEN || '').trim();
 const GH_API = 'https://github.com';
 const GIFTS = {
-      "ALTER TABLE users ADD COLUMN music_text TEXT DEFAULT ''",
-    "ALTER TABLE users ADD COLUMN music_audio TEXT DEFAULT ''",
-    "ALTER TABLE users ADD COLUMN profile_channel_id INTEGER DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN emoji_status TEXT DEFAULT ''",
-    "ALTER TABLE users ADD COLUMN name_color TEXT DEFAULT ''",
-    "ALTER TABLE users ADD COLUMN bubble_color TEXT DEFAULT ''",
-    "ALTER TABLE users ADD COLUMN avatar_frame TEXT DEFAULT ''",
-    "ALTER TABLE users ADD COLUMN garland INTEGER DEFAULT 1",
-    "ALTER TABLE users ADD COLUMN hide_last_seen INTEGER DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN admin_invisible INTEGER DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN pin_code TEXT DEFAULT ''",
-    "ALTER TABLE users ADD COLUMN token_ver INTEGER DEFAULT 1",
-    "ALTER TABLE users ADD COLUMN is_banned INTEGER DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN last_seen INTEGER DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN online_sec INTEGER DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN last_bonus INTEGER DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN quest_date TEXT DEFAULT ''",
-    "ALTER TABLE users ADD COLUMN q_msgs INTEGER DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN q_reacts INTEGER DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN q_claimed INTEGER DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN spent_stars INTEGER DEFAULT 0",
-    "ALTER TABLE users ADD COLUMN earned_stars INTEGER DEFAULT 0",
-    "ALTER TABLE chats ADD COLUMN avatar TEXT DEFAULT ''",
-    "ALTER TABLE chats ADD COLUMN bio TEXT DEFAULT ''",
-    "ALTER TABLE chats ADD COLUMN invite_code TEXT DEFAULT ''",
-    "ALTER TABLE chats ADD COLUMN is_banned INTEGER DEFAULT 0",
-    "ALTER TABLE chats ADD COLUMN pinned_msg_id INTEGER DEFAULT 0",
-    "ALTER TABLE chat_members ADD COLUMN role TEXT DEFAULT 'member'",
-    "ALTER TABLE chat_members ADD COLUMN pinned INTEGER DEFAULT 0",
-    "ALTER TABLE chat_members ADD COLUMN hidden INTEGER DEFAULT 0",
-    "ALTER TABLE messages ADD COLUMN reply_to_id INTEGER DEFAULT 0",
-    "ALTER TABLE messages ADD COLUMN fwd_from TEXT DEFAULT ''",
-    "ALTER TABLE messages ADD COLUMN one_time INTEGER DEFAULT 0",
-    "ALTER TABLE messages ADD COLUMN viewed_by TEXT DEFAULT '[]'",
-    "ALTER TABLE messages ADD COLUMN views_count INTEGER DEFAULT 1",
-    "ALTER TABLE messages ADD COLUMN stars_donated INTEGER DEFAULT 0",
-    "ALTER TABLE messages ADD COLUMN poll_json TEXT DEFAULT ''",
-    "ALTER TABLE user_gifts ADD COLUMN to_chat_id INTEGER DEFAULT 0",
-    "ALTER TABLE user_gifts ADD COLUMN caption TEXT DEFAULT ''",
-    "ALTER TABLE user_gifts ADD COLUMN is_anon INTEGER DEFAULT 0",
-    "ALTER TABLE user_gifts ADD COLUMN hidden INTEGER DEFAULT 0",
-    "ALTER TABLE user_gifts ADD COLUMN is_nft INTEGER DEFAULT 0",
-    "ALTER TABLE user_gifts ADD COLUMN nft_bg TEXT DEFAULT ''",
-    "ALTER TABLE user_gifts ADD COLUMN nft_pattern TEXT DEFAULT ''",
-    "ALTER TABLE user_gifts ADD COLUMN market_price INTEGER DEFAULT 0",
+  lollipop: { id: 'lollipop', name: 'Сладкий Леденец', emoji: '🍭', price: 10 },
+  bear: { id: 'bear', name: 'Плюшевый Мишка', emoji: '🧸', price: 15 },
+  heart: { id: 'heart', name: 'Сердце с бантиком', emoji: '💝', price: 25 },
+  snowman: { id: 'snowman', name: 'Новогодний Снеговик', emoji: '⛄', price: 50 },
+  tree: { id: 'tree', name: 'Новогодняя Ёлка', emoji: '🎄', price: 100 },
+  ring: { id: 'ring', name: 'Кольцо с бриллиантом', emoji: '💍', price: 250 },
+  crown: { id: 'crown', name: 'Золотая Корона', emoji: '👑', price: 1500 },
+  unicorn: { id: 'unicorn', name: 'Лимитированный Единорог', emoji: '🦄', price: 10000, limited: 1000 }
+};
+
+const EXCLUSIVE_GIFTS = {
+  crystal: { id: 'crystal', name: 'Редкий Кристалл (Admin)', emoji: '💎', price: 5000, exclusive: true },
+  dragon: { id: 'dragon', name: 'Огненный Дракон (Admin)', emoji: '🐉', price: 15000, exclusive: true },
+  rocket: { id: 'rocket', name: 'Ракета Lume (Admin)', emoji: '🚀', price: 25000, exclusive: true }
+};
+
+const ALL_GIFTS = { ...GIFTS, ...EXCLUSIVE_GIFTS };
+const GIFTS = {
   lollipop: { id: 'lollipop', name: 'Сладкий Леденец', emoji: '🍭', price: 10 },
   bear: { id: 'bear', name: 'Плюшевый Мишка', emoji: '🧸', price: 15 },
   heart: { id: 'heart', name: 'Сердце с бантиком', emoji: '💝', price: 25 },
@@ -181,7 +154,7 @@ async function start() {
     "CREATE TABLE IF NOT EXISTS promo_uses(code TEXT NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY(code, user_id));" +
     "CREATE TABLE IF NOT EXISTS reports(id INTEGER PRIMARY KEY AUTOINCREMENT, from_user_id INTEGER NOT NULL, target_type TEXT NOT NULL, target_id INTEGER NOT NULL, reason TEXT NOT NULL, created_at INTEGER NOT NULL);"
   );
-    const alters = [
+  const alters = [
     "ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ''",
     "ALTER TABLE users ADD COLUMN banner TEXT DEFAULT ''",
     "ALTER TABLE users ADD COLUMN bio TEXT DEFAULT ''",
@@ -193,16 +166,60 @@ async function start() {
     "ALTER TABLE users ADD COLUMN hide_email INTEGER DEFAULT 0",
     "ALTER TABLE users ADD COLUMN lang TEXT DEFAULT 'ru'",
     "ALTER TABLE users ADD COLUMN stars INTEGER DEFAULT 100",
+    "ALTER TABLE users ADD COLUMN music_text TEXT DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN music_audio TEXT DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN profile_channel_id INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN emoji_status TEXT DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN name_color TEXT DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN bubble_color TEXT DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN avatar_frame TEXT DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN garland INTEGER DEFAULT 1",
+    "ALTER TABLE users ADD COLUMN hide_last_seen INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN admin_invisible INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN pin_code TEXT DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN token_ver INTEGER DEFAULT 1",
+    "ALTER TABLE users ADD COLUMN is_banned INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN last_seen INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN online_sec INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN last_bonus INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN quest_date TEXT DEFAULT ''",
+    "ALTER TABLE users ADD COLUMN q_msgs INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN q_reacts INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN q_claimed INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN spent_stars INTEGER DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN earned_stars INTEGER DEFAULT 0",
     "ALTER TABLE chats ADD COLUMN type TEXT DEFAULT 'private'",
     "ALTER TABLE chats ADD COLUMN owner_id INTEGER DEFAULT 0",
     "ALTER TABLE chats ADD COLUMN username TEXT DEFAULT ''",
+    "ALTER TABLE chats ADD COLUMN avatar TEXT DEFAULT ''",
+    "ALTER TABLE chats ADD COLUMN bio TEXT DEFAULT ''",
+    "ALTER TABLE chats ADD COLUMN invite_code TEXT DEFAULT ''",
+    "ALTER TABLE chats ADD COLUMN is_banned INTEGER DEFAULT 0",
+    "ALTER TABLE chats ADD COLUMN pinned_msg_id INTEGER DEFAULT 0",
+    "ALTER TABLE chat_members ADD COLUMN role TEXT DEFAULT 'member'",
+    "ALTER TABLE chat_members ADD COLUMN pinned INTEGER DEFAULT 0",
+    "ALTER TABLE chat_members ADD COLUMN hidden INTEGER DEFAULT 0",
     "ALTER TABLE messages ADD COLUMN gift_id TEXT DEFAULT ''",
     "ALTER TABLE messages ADD COLUMN gift_num INTEGER DEFAULT 0",
     "ALTER TABLE messages ADD COLUMN media_type TEXT DEFAULT ''",
     "ALTER TABLE messages ADD COLUMN media_data TEXT DEFAULT ''",
     "ALTER TABLE messages ADD COLUMN edited INTEGER DEFAULT 0",
     "ALTER TABLE messages ADD COLUMN reactions TEXT DEFAULT '{}'",
-
+    "ALTER TABLE messages ADD COLUMN reply_to_id INTEGER DEFAULT 0",
+    "ALTER TABLE messages ADD COLUMN fwd_from TEXT DEFAULT ''",
+    "ALTER TABLE messages ADD COLUMN one_time INTEGER DEFAULT 0",
+    "ALTER TABLE messages ADD COLUMN viewed_by TEXT DEFAULT '[]'",
+    "ALTER TABLE messages ADD COLUMN views_count INTEGER DEFAULT 1",
+    "ALTER TABLE messages ADD COLUMN stars_donated INTEGER DEFAULT 0",
+    "ALTER TABLE messages ADD COLUMN poll_json TEXT DEFAULT ''",
+    "ALTER TABLE user_gifts ADD COLUMN to_chat_id INTEGER DEFAULT 0",
+    "ALTER TABLE user_gifts ADD COLUMN caption TEXT DEFAULT ''",
+    "ALTER TABLE user_gifts ADD COLUMN is_anon INTEGER DEFAULT 0",
+    "ALTER TABLE user_gifts ADD COLUMN hidden INTEGER DEFAULT 0",
+    "ALTER TABLE user_gifts ADD COLUMN is_nft INTEGER DEFAULT 0",
+    "ALTER TABLE user_gifts ADD COLUMN nft_bg TEXT DEFAULT ''",
+    "ALTER TABLE user_gifts ADD COLUMN nft_pattern TEXT DEFAULT ''",
+    "ALTER TABLE user_gifts ADD COLUMN market_price INTEGER DEFAULT 0"
   ];
   for (const sql of alters) { try { db.exec(sql); } catch {} }
 
@@ -215,7 +232,6 @@ async function start() {
   app.use(express.static(path.join(__dirname, 'public')));
 
   const onlineUsers = new Set();
-
   function logStar(userId, amount, reason) {
     if (!amount) return;
     db.prepare('INSERT INTO star_logs(user_id,amount,reason,created_at) VALUES(?,?,?,?)').run(userId, amount, reason, Date.now());
@@ -310,7 +326,6 @@ async function start() {
       next();
     } catch { res.status(401).json({ error: 'Неверный токен' }); }
   }
-
   app.post('/api/register', async (req, res) => {
     const { email, password, name } = req.body || {};
     if (!email || !password || !name) return res.status(400).json({ error: 'Заполните все поля' });
@@ -348,6 +363,7 @@ async function start() {
     ensureSavedChat(req.user.id);
     res.json(pub(req.user, req.user));
   });
+
   app.post('/api/profile', auth, async (req, res) => {
     const b = req.body || {};
     const name = String(b.name || req.user.name).trim();
@@ -400,8 +416,7 @@ async function start() {
     const updated = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
     res.json(pub(updated, updated));
   });
-
-  app.post('/api/sessions/reset', auth, (req, res) => {
+app.post('/api/sessions/reset', auth, (req, res) => {
     db.prepare('UPDATE users SET token_ver = COALESCE(token_ver,1) + 1 WHERE id=?').run(req.user.id);
     const updated = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
     res.json({ token: sign(updated), user: pub(updated, updated) });
@@ -447,6 +462,7 @@ async function start() {
     const updated = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
     res.json({ ok: true, user: pub(updated, updated) });
   });
+
   app.get('/api/wallet', auth, (req, res) => {
     const today = new Date().toISOString().slice(0, 10);
     if (req.user.quest_date !== today) {
@@ -508,8 +524,7 @@ async function start() {
     if ((req.user.stars || 0) < cost) return res.status(400).json({ error: 'Для запуска рулетки нужно 25 ⭐' });
     const prizes = '0,0,10,15,25,35,50,100,250,500'.split(',').map(Number);
     const win = prizes[Math.floor(Math.random() * prizes.length)];
-    const net = win - cost;
-    db.prepare('UPDATE users SET stars = stars + ? WHERE id=?').run(net, req.user.id);
+    db.prepare('UPDATE users SET stars = stars + ? WHERE id=?').run(win - cost, req.user.id);
     logStar(req.user.id, -cost, 'Ставка в рулетке');
     if (win > 0) logStar(req.user.id, win, 'Выигрыш в рулетке');
     const updated = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
@@ -625,6 +640,7 @@ async function start() {
     const caption = String(req.body?.caption || '').trim();
     const hours = '6,12,24'.split(',').map(Number).includes(Number(req.body?.hours)) ? Number(req.body.hours) : 24;
     if (!mediaData) return res.status(400).json({ error: 'Выберите изображение для истории' });
+
     const isPrem = Boolean(req.user.is_premium || req.user.email === ADMIN_EMAIL);
     if (!isPrem) {
       const dayAgo = Date.now() - 24 * 3600 * 1000;
