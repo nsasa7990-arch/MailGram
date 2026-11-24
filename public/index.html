@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>MailGram</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0a0a0a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+</head>
+<body>
+  <div id="auth">
+    <h1>MailGram</h1>
+    <p style="color:#888">Мессенджер со входом по почте</p>
+    <div class="tabs">
+      <button class="tab active" data-tab="login">Вход</button>
+      <button class="tab" data-tab="register">Регистрация</button>
+    </div>
+    <form id="loginForm">
+      <input name="email" type="email" placeholder="Email" required>
+      <input name="password" type="password" placeholder="Пароль" required>
+      <button type="submit">Войти</button>
+    </form>
+    <form id="registerForm" class="hidden">
+      <input name="name" type="text" placeholder="Ваше имя" required>
+      <input name="email" type="email" placeholder="Email" required>
+      <input name="password" type="password" placeholder="Пароль (от 6 символов)" required>
+      <button type="submit">Создать аккаунт</button>
+    </form>
+    <div id="authMsg" style="color:#f87171;font-size:14px"></div>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="sidebar">
+      <div class="me-bar">
+        <div class="me-info" id="openMyProfile" title="Мой профиль и подарки">
+          <img id="meAvatar" class="avatar" src="" alt="">
+          <div>
+            <div id="meName"></div>
+            <div id="meSub" style="font-size:12px;color:#60a5fa"></div>
+          </div>
+        </div>
+        <div class="me-actions">
+          <button id="openSettingsBtn" class="icon-mini" title="Настройки">⚙️</button>
+          <button id="logoutBtn" title="Выйти">Выйти</button>
+        </div>
+      </div>
+      <form id="newChatForm">
+        <input name="query" type="text" placeholder="Email или @username..." required>
+        <button type="submit">+</button>
+      </form>
+      <div id="chatList"></div>
+    </div>
+
+    <div class="chat-area">
+      <div id="chatHeader" class="chat-header">
+        <button type="button" id="mobileBackBtn" class="mobile-back" title="Назад к чатам">←</button>
+        <img id="chatHeaderAvatar" class="avatar sm hidden" src="" alt="">
+        <span id="chatHeaderTitle">Выберите чат</span>
+      </div>
+      <div id="messages"></div>
+      <form id="sendForm">
+        <button type="button" id="openGiftBtn" class="icon-btn" title="Отправить подарок">🎁</button>
+        <input id="msgInput" type="text" placeholder="Сообщение..." autocomplete="off">
+        <button type="submit">➤</button>
+      </form>
+    </div>
+  </div>
+  <!-- Мой профиль -->
+  <div id="myProfileModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-top">
+        <h3>Мой профиль</h3>
+        <button class="close-btn" data-close="myProfileModal">✕</button>
+      </div>
+      <div class="profile-hero">
+        <img id="profAvatar" class="avatar lg" src="" alt="">
+        <div>
+          <div id="profNameTitle" class="prof-name"></div>
+          <div id="profUsernames" class="prof-tags"></div>
+          <div id="profBioText" style="font-size:13px;color:#aaa;margin-top:4px"></div>
+          <div class="stars-badge">Баланс: <b id="profStars">0</b> ⭐</div>
+        </div>
+      </div>
+      <button id="goSettingsFromProf" style="width:100%;margin-top:12px;background:#1f2937">⚙️ Редактировать профиль и настройки</button>
+      <div class="section-title">Мои подарки (<span id="myGiftsCount">0</span>)</div>
+      <div id="myGiftsGrid" class="gifts-grid"></div>
+    </div>
+  </div>
+
+  <!-- Настройки + Админка -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-top">
+        <h3>⚙️ Настройки аккаунта</h3>
+        <button class="close-btn" data-close="settingsModal">✕</button>
+      </div>
+      <div class="profile-hero" style="margin-bottom:10px">
+        <label class="avatar-upload" title="Нажмите, чтобы загрузить фото">
+          <img id="setAvatar" class="avatar lg" src="" alt="">
+          <span>📷</span>
+          <input type="file" id="avatarInput" accept="image/*" hidden>
+        </label>
+        <div style="font-size:13px;color:#aaa">Нажмите на кружок с фото, чтобы поменять аватарку</div>
+      </div>
+      <form id="settingsForm" class="stack-form">
+        <label class="fld-lbl">Имя профиля</label>
+        <input id="setNameInput" type="text" placeholder="Ваше имя" required>
+        <label class="fld-lbl">О себе (статус)</label>
+        <input id="setBioInput" type="text" placeholder="Напишите пару слов о себе...">
+        <label class="fld-lbl">Ваш @username (для поиска)</label>
+        <input id="setUsernameInput" type="text" placeholder="например: alex_cool">
+        <label class="fld-lbl">Новый пароль (оставьте пустым, если не меняете)</label>
+        <input id="setPassInput" type="password" placeholder="Новый пароль (от 6 символов)">
+        <button type="submit">Сохранить настройки</button>
+      </form>
+
+      <div id="adminPanel" class="admin-box hidden">
+        <div class="section-title" style="color:#fbbf24">👑 Настройки администратора</div>
+        <form id="adminForm" class="stack-form">
+          <input id="admEmail" type="email" placeholder="Email пользователя" required>
+          <input id="admStars" type="number" placeholder="Начислить звёзд (например: 5000)">
+          <input id="admUsername" type="text" placeholder="Выдать обычный @юз (без @)">
+          <input id="admNft" type="text" placeholder="Выдать редкий NFT @юз (без @)">
+          <label class="chk-row">
+            <input type="checkbox" id="admVerified"> Синяя галочка верификации ✓
+          </label>
+          <button type="submit" style="background:#d97706">Применить права / выдать</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Профиль собеседника -->
+  <div id="peerProfileModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-top">
+        <h3>Профиль пользователя</h3>
+        <button class="close-btn" data-close="peerProfileModal">✕</button>
+      </div>
+      <div class="profile-hero">
+        <img id="peerAvatar" class="avatar lg" src="" alt="">
+        <div>
+          <div id="peerNameTitle" class="prof-name"></div>
+          <div id="peerUsernames" class="prof-tags"></div>
+          <div id="peerBio" style="font-size:13px;color:#aaa;margin-top:6px"></div>
+        </div>
+      </div>
+      <button id="peerGiftBtn" style="width:100%;margin-top:12px;background:#7c3aed">🎁 Подарить подарок</button>
+      <div class="section-title">Подарки пользователя (<span id="peerGiftsCount">0</span>)</div>
+      <div id="peerGiftsGrid" class="gifts-grid"></div>
+    </div>
+  </div>
+
+  <!-- Магазин подарков -->
+  <div id="giftModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-top">
+        <h3>🎁 Выберите подарок</h3>
+        <button class="close-btn" data-close="giftModal">✕</button>
+      </div>
+      <div style="font-size:13px;color:#aaa;margin-bottom:10px">
+        Ваш баланс: <b id="giftModalStars" style="color:#fbbf24">0</b> ⭐
+      </div>
+      <div id="shopGrid" class="shop-grid"></div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  </script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "qwertgram",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.22.3",
+    "jsonwebtoken": "^9.0.3",
+    "localtunnel": "^2.0.2",
+    "nodemailer": "^6.9.14",
+    "socket.io": "^4.8.4",
+    "sql.js": "^1.17.0"
+  }
+}
