@@ -12,7 +12,7 @@
 <body class="theme-dark">
   <div id="auth">
     <h1>MailGram</h1>
-    <p style="color:var(--muted)">Мессенджер со входом по почте</p>
+    <p id="authSubtitle" style="color:var(--muted)">Мессенджер со входом по почте</p>
     <div class="tabs">
       <button class="tab active" data-tab="login">Вход</button>
       <button class="tab" data-tab="register">Регистрация</button>
@@ -34,7 +34,7 @@
   <div id="app" class="hidden">
     <div class="sidebar">
       <div class="me-bar">
-        <div class="me-info" id="openMyProfile" title="Мой профиль и подарки">
+        <div class="me-info" id="openMyProfile" title="Мой профиль">
           <img id="meAvatar" class="avatar" src="" alt="">
           <div>
             <div id="meName"></div>
@@ -42,13 +42,14 @@
           </div>
         </div>
         <div class="me-actions">
+          <button id="openAdminBtn" class="icon-mini hidden" title="Админ-панель">👑</button>
           <button id="openCreateRoomBtn" class="icon-mini" title="Создать группу или канал">📢</button>
           <button id="openSettingsBtn" class="icon-mini" title="Настройки">⚙️</button>
           <button id="logoutBtn" title="Выйти">Выйти</button>
         </div>
       </div>
       <form id="newChatForm">
-        <input name="query" type="text" placeholder="Email, @username или номер..." required>
+        <input name="query" type="text" placeholder="Email, @username или +888..." required>
         <button type="submit">+</button>
       </form>
       <div id="chatList"></div>
@@ -56,7 +57,7 @@
 
     <div class="chat-area">
       <div id="chatHeader" class="chat-header">
-        <button type="button" id="mobileBackBtn" class="mobile-back" title="Назад к чатам">←</button>
+        <button type="button" id="mobileBackBtn" class="mobile-back" title="Назад">←</button>
         <img id="chatHeaderAvatar" class="avatar sm hidden" src="" alt="">
         <div>
           <div id="chatHeaderTitle">Выберите чат</div>
@@ -66,35 +67,156 @@
       <div id="messages"></div>
       <div id="channelReadOnly" class="readonly-bar hidden">Вы подписаны на канал (публиковать посты может только владелец)</div>
       <form id="sendForm">
-        <button type="button" id="openGiftBtn" class="icon-btn" title="Отправить подарок">🎁</button>
-        <button type="button" id="attachPhotoBtn" class="icon-btn" title="Отправить фото">📎</button>
+        <button type="button" id="openGiftBtn" class="icon-btn" title="Подарок">🎁</button>
+        <button type="button" id="attachPhotoBtn" class="icon-btn" title="Фото">📎</button>
         <input type="file" id="photoInput" accept="image/*" hidden>
         <input id="msgInput" type="text" placeholder="Сообщение..." autocomplete="off">
-        <button type="button" id="voiceBtn" class="icon-btn" title="Записать голосовое">🎤</button>
+        <button type="button" id="voiceBtn" class="icon-btn" title="Голосовое">🎤</button>
         <button type="submit">➤</button>
       </form>
     </div>
   </div>
-  <!-- Мой профиль с баннером -->
+  <!-- Мой профиль с баннером под аватаркой и свайпом вкладок -->
   <div id="myProfileModal" class="modal hidden">
-    <div class="modal-card" style="padding:0;overflow:hidden">
-      <div id="profBanner" class="prof-banner">
+    <div id="myProfileCard" class="modal-card" style="padding:0;overflow:hidden">
+      <div id="profHeroBanner" class="hero-banner-wrap">
         <button class="close-btn banner-close" data-close="myProfileModal">✕</button>
-      </div>
-      <div style="padding:0 18px 18px">
-        <div class="profile-hero" style="margin-top:-34px">
+        <div class="profile-hero">
           <img id="profAvatar" class="avatar lg bordered-av" src="" alt="">
-          <div style="padding-top:34px">
+          <div>
             <div id="profNameTitle" class="prof-name"></div>
             <div id="profUsernames" class="prof-tags"></div>
-            <div id="profBioText" style="font-size:13px;color:var(--muted);margin-top:4px"></div>
             <div class="stars-badge">Баланс: <b id="profStars">0</b> ⭐</div>
           </div>
         </div>
-        <button id="goSettingsFromProf" style="width:100%;margin-top:12px;background:#1f2937">⚙️ Редактировать профиль, баннер и темы</button>
-        <div class="section-title">Мои подарки (<span id="myGiftsCount">0</span>)</div>
-        <div id="myGiftsGrid" class="gifts-grid"></div>
       </div>
+
+      <div style="padding:14px 18px 18px">
+        <div class="swipe-tabs">
+          <button type="button" class="swipe-tab active" data-my-tab="gifts">🎁 Подарки (<span id="myGiftsCount">0</span>)</button>
+          <button type="button" class="swipe-tab" data-my-tab="info">ℹ️ Информация</button>
+        </div>
+        <div style="font-size:11px;color:var(--muted);text-align:center;margin-bottom:10px">Свайпните влево или вправо для переключения</div>
+
+        <div id="myTabGifts">
+          <div id="myGiftsGrid" class="gifts-grid"></div>
+        </div>
+
+        <div id="myTabInfo" class="hidden">
+          <div class="info-box">
+            <div class="fld-lbl">О себе</div>
+            <div id="profBioText" style="font-size:14px;margin-top:2px">Нет описания</div>
+            <div class="fld-lbl" style="margin-top:10px">Почта (Email)</div>
+            <div id="profEmailText" style="font-size:14px;margin-top:2px"></div>
+          </div>
+          <button id="goSettingsFromProf" style="width:100%;margin-top:12px;background:#1f2937">⚙️ Настройки профиля и приватности</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Отдельное окно Админ-панели (по кнопке 👑 в шапке) -->
+  <div id="adminModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-top">
+        <h3 style="color:#fbbf24">👑 Панель администратора</h3>
+        <button class="close-btn" data-close="adminModal">✕</button>
+      </div>
+      <form id="adminForm" class="stack-form">
+        <label class="fld-lbl">Кому выдать (@username, Email или +888...)</label>
+        <input id="admQuery" type="text" placeholder="Например: @wulcime или user@mail.ru" required>
+        <label class="fld-lbl">Начислить звёзд ⭐</label>
+        <input id="admStars" type="number" placeholder="Например: 5000">
+        <label class="fld-lbl">Выдать обычный @username</label>
+        <input id="admUsername" type="text" placeholder="Без символа @">
+        <label class="fld-lbl">Выдать редкий NFT @username</label>
+        <input id="admNft" type="text" placeholder="Без символа @">
+        <label class="fld-lbl">Выдать анонимный номер (+888... или +999...)</label>
+        <input id="admAnonNumber" type="text" placeholder="+888 1234 5678 или +999 123 456">
+        <label class="fld-lbl">Выдать эксклюзивный подарок (с личным #ID)</label>
+        <select id="admGiftSelect" class="dark-select">
+          <option value="">— Не выдавать подарок —</option>
+          <option value="crystal">💎 Редкий Кристалл (Admin)</option>
+          <option value="dragon">🐉 Огненный Дракон (Admin)</option>
+          <option value="rocket">🚀 Ракета MailGram (Admin)</option>
+        </select>
+        <label class="chk-row" style="margin-top:4px">
+          <input type="checkbox" id="admVerified"> Синяя галочка верификации ✓
+        </label>
+        <label class="chk-row">
+          <input type="checkbox" id="admPremium"> Выдать MailGram Premium ⭐
+        </label>
+        <button type="submit" style="background:#d97706;margin-top:6px">Выдать пользователю</button>
+      </form>
+    </div>
+  </div>
+  <!-- Настройки аккаунта (Язык, Почта, Скрытие почты, Пароль, Баннер, Темы, Премиум) -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-top">
+        <h3>⚙️ Настройки аккаунта</h3>
+        <button class="close-btn" data-close="settingsModal">✕</button>
+      </div>
+
+      <div id="premPromoBox" class="prem-card">
+        <div>
+          <div style="font-weight:700;color:#fde68a">⭐ MailGram Premium</div>
+          <div style="font-size:12px;color:#fcd34d;margin-top:2px">Золотая звезда и продажа подарков без комиссии (100%)</div>
+        </div>
+        <button type="button" id="buyPremBtn" style="background:#d97706;flex-shrink:0">Купить 500 ⭐</button>
+      </div>
+
+      <div class="profile-hero" style="margin:12px 0">
+        <label class="avatar-upload" title="Поменять аватарку">
+          <img id="setAvatar" class="avatar lg" src="" alt="">
+          <span>📷</span>
+          <input type="file" id="avatarInput" accept="image/*" hidden>
+        </label>
+        <div style="flex:1">
+          <label class="banner-upload-btn">
+            🖼️ Загрузить баннер (под аватарку)
+            <input type="file" id="bannerInput" accept="image/*" hidden>
+          </label>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">Отображается фоном шапки профиля</div>
+        </div>
+      </div>
+
+      <form id="settingsForm" class="stack-form">
+        <label class="fld-lbl">Язык интерфейса / Language</label>
+        <select id="setLangSelect" class="dark-select">
+          <option value="ru">🇷🇺 Русский</option>
+          <option value="en">🇬🇧 English</option>
+        </select>
+
+        <label class="fld-lbl">Тема оформления</label>
+        <select id="setThemeSelect" class="dark-select">
+          <option value="dark">🌑 Тёмная (OLED Black)</option>
+          <option value="midnight">🌌 Полночь (Deep Blue)</option>
+          <option value="emerald">🌲 Изумруд (Dark Green)</option>
+          <option value="light">☀️ Светлая (Day Light)</option>
+        </select>
+
+        <label class="fld-lbl">Имя профиля</label>
+        <input id="setNameInput" type="text" placeholder="Ваше имя" required>
+
+        <label class="fld-lbl">О себе (статус)</label>
+        <input id="setBioInput" type="text" placeholder="Напишите пару слов о себе...">
+
+        <label class="fld-lbl">Ваш @username</label>
+        <input id="setUsernameInput" type="text" placeholder="например: alex_cool">
+
+        <label class="fld-lbl">Почта (Email)</label>
+        <input id="setEmailInput" type="email" placeholder="Ваш Email" required>
+
+        <label class="chk-row" style="margin:4px 0">
+          <input type="checkbox" id="setHideEmail"> Скрыть мою почту от других пользователей
+        </label>
+
+        <label class="fld-lbl">Новый пароль (оставьте пустым, если не меняете)</label>
+        <input id="setPassInput" type="password" placeholder="Новый пароль (от 6 символов)">
+
+        <button type="submit">Сохранить настройки</button>
+      </form>
     </div>
   </div>
 
@@ -112,7 +234,7 @@
           <option value="channel">📢 Канал (посты публикуете только вы)</option>
         </select>
         <label class="fld-lbl">Название</label>
-        <input id="roomTitleInput" type="text" placeholder="Например: Игровой чат или Новости" required>
+        <input id="roomTitleInput" type="text" placeholder="Название группы или канала" required>
         <label class="fld-lbl">Публичный @username (для поиска)</label>
         <input id="roomUsernameInput" type="text" placeholder="например: news_channel">
         <button type="submit">Создать</button>
@@ -132,7 +254,7 @@
       </div>
       <div style="display:flex;gap:6px;margin-top:10px;align-items:center;flex-wrap:wrap">
         <input type="color" id="drawColor" value="#ef4444" style="width:38px;height:36px;padding:2px;border-radius:8px">
-        <input type="text" id="photoCaptionInput" placeholder="Добавить надпись на фото..." style="flex:1;min-width:120px">
+        <input type="text" id="photoCaptionInput" placeholder="Надпись на фото..." style="flex:1;min-width:120px">
         <button type="button" id="addTextBtn" style="background:#374151">Текст</button>
         <button type="button" id="resetPhotoBtn" style="background:#374151">Сброс</button>
       </div>
@@ -140,98 +262,22 @@
     </div>
   </div>
 
-  <!-- Настройки, Темы, Премиум и Расширенная Админка -->
-  <div id="settingsModal" class="modal hidden">
-    <div class="modal-card">
-      <div class="modal-top">
-        <h3>⚙️ Настройки аккаунта</h3>
-        <button class="close-btn" data-close="settingsModal">✕</button>
-      </div>
-
-      <div id="premPromoBox" class="prem-card">
-        <div>
-          <div style="font-weight:700;color:#fde68a">⭐ MailGram Premium</div>
-          <div id="premStatusText" style="font-size:12px;color:#fcd34d;margin-top:2px">Золотая звезда, эксклюзивные темы и продажа подарков без комиссии (100%)</div>
-        </div>
-        <button type="button" id="buyPremBtn" style="background:#d97706;flex-shrink:0">Купить 500 ⭐</button>
-      </div>
-
-      <div class="profile-hero" style="margin:12px 0">
-        <label class="avatar-upload" title="Поменять аватарку">
-          <img id="setAvatar" class="avatar lg" src="" alt="">
-          <span>📷</span>
-          <input type="file" id="avatarInput" accept="image/*" hidden>
-        </label>
-        <div style="flex:1">
-          <label class="banner-upload-btn">
-            🖼️ Загрузить баннер профиля
-            <input type="file" id="bannerInput" accept="image/*" hidden>
-          </label>
-          <div style="font-size:11px;color:var(--muted);margin-top:4px">Шапка отображается в вашем профиле</div>
-        </div>
-      </div>
-
-      <form id="settingsForm" class="stack-form">
-        <label class="fld-lbl">Тема оформления</label>
-        <select id="setThemeSelect" class="dark-select">
-          <option value="dark">🌑 Тёмная (OLED Black)</option>
-          <option value="midnight">🌌 Полночь (Deep Blue)</option>
-          <option value="emerald">🌲 Изумруд (Dark Green)</option>
-          <option value="light">☀️ Светлая (Day Light)</option>
-        </select>
-        <label class="fld-lbl">Имя профиля</label>
-        <input id="setNameInput" type="text" placeholder="Ваше имя" required>
-        <label class="fld-lbl">О себе (статус)</label>
-        <input id="setBioInput" type="text" placeholder="Напишите пару слов о себе...">
-        <label class="fld-lbl">Ваш @username (для поиска)</label>
-        <input id="setUsernameInput" type="text" placeholder="например: alex_cool">
-        <label class="fld-lbl">Новый пароль (оставьте пустым, если не меняете)</label>
-        <input id="setPassInput" type="password" placeholder="Новый пароль (от 6 символов)">
-        <button type="submit">Сохранить настройки</button>
-      </form>
-
-      <div id="adminPanel" class="admin-box hidden">
-        <div class="section-title" style="color:#fbbf24">👑 Панель администратора (по @username или Email)</div>
-        <form id="adminForm" class="stack-form">
-          <input id="admQuery" type="text" placeholder="Кому: @username или Email (любому игроку)" required>
-          <input id="admStars" type="number" placeholder="Начислить звёзд (например: 5000)">
-          <input id="admUsername" type="text" placeholder="Выдать обычный @юз (без @)">
-          <input id="admNft" type="text" placeholder="Выдать редкий NFT @юз (без @)">
-          <input id="admAnonNumber" type="text" placeholder="Анонимный номер (+888 1234 5678 или +999 123 456)">
-          <label class="fld-lbl">Выдать эксклюзивный подарок (только от админа)</label>
-          <select id="admGiftSelect" class="dark-select">
-            <option value="">— Не выдавать подарок —</option>
-            <option value="crystal">💎 Редкий Кристалл (Admin)</option>
-            <option value="dragon">🐉 Огненный Дракон (Admin)</option>
-            <option value="rocket">🚀 Ракета MailGram (Admin)</option>
-          </select>
-          <label class="chk-row">
-            <input type="checkbox" id="admVerified"> Синяя галочка верификации ✓
-          </label>
-          <label class="chk-row">
-            <input type="checkbox" id="admPremium"> Выдать MailGram Premium ⭐
-          </label>
-          <button type="submit" style="background:#d97706">Применить права / выдать игроку</button>
-        </form>
-      </div>
-    </div>
-  </div>
-
-  <!-- Профиль собеседника с баннером -->
+  <!-- Профиль собеседника с баннером под аватаркой -->
   <div id="peerProfileModal" class="modal hidden">
     <div class="modal-card" style="padding:0;overflow:hidden">
-      <div id="peerBanner" class="prof-banner">
+      <div id="peerHeroBanner" class="hero-banner-wrap">
         <button class="close-btn banner-close" data-close="peerProfileModal">✕</button>
-      </div>
-      <div style="padding:0 18px 18px">
-        <div class="profile-hero" style="margin-top:-34px">
+        <div class="profile-hero">
           <img id="peerAvatar" class="avatar lg bordered-av" src="" alt="">
-          <div style="padding-top:34px">
+          <div>
             <div id="peerNameTitle" class="prof-name"></div>
             <div id="peerUsernames" class="prof-tags"></div>
-            <div id="peerBio" style="font-size:13px;color:var(--muted);margin-top:6px"></div>
           </div>
         </div>
+      </div>
+      <div style="padding:14px 18px 18px">
+        <div id="peerBio" style="font-size:13px;color:var(--muted)"></div>
+        <div id="peerEmailBox" style="font-size:12px;color:#60a5fa;margin-top:4px"></div>
         <button id="peerGiftBtn" style="width:100%;margin-top:12px;background:#7c3aed">🎁 Подарить подарок</button>
         <div class="section-title">Подарки пользователя (<span id="peerGiftsCount">0</span>)</div>
         <div id="peerGiftsGrid" class="gifts-grid"></div>
@@ -252,7 +298,8 @@
       <div id="shopGrid" class="shop-grid"></div>
     </div>
   </div>
-  <!-- Меню действий для сообщения (редактировать / удалить / реакции) -->
+
+  <!-- Действия с сообщением -->
   <div id="msgActionModal" class="modal hidden">
     <div class="modal-card" style="max-width:320px">
       <div class="modal-top">
