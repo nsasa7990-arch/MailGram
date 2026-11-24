@@ -603,9 +603,8 @@ async function start() {
   app.post('/api/stories', auth, (req, res) => {
     const mediaData = String(req.body?.mediaData || '');
     const caption = String(req.body?.caption || '').trim();
-    const hours = .includes(Number(req.body?.hours)) ? Number(req.body.hours) : 24;
+    const hours = '6,12,24'.split(',').map(Number).includes(Number(req.body?.hours)) ? Number(req.body.hours) : 24;
     if (!mediaData) return res.status(400).json({ error: 'Выберите изображение для истории' });
-
     const isPrem = Boolean(req.user.is_premium || req.user.email === ADMIN_EMAIL);
     if (!isPrem) {
       const dayAgo = Date.now() - 24 * 3600 * 1000;
