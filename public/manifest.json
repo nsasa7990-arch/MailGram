@@ -1,6 +1,7 @@
 {
   "name": "MailGram",
   "short_name": "MailGram",
+  "description": "Мессенджер со входом по почте",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",
@@ -8,10 +9,10 @@
   "orientation": "portrait",
   "icons": [
     {
-      "src": "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' viewBox='0 0 512 512'><rect width='512' height='512' rx='110' fill='%232b5278'/><text x='50%' y='54%' dominant-baseline='middle' text-anchor='middle' fill='white' font-size='260' font-family='sans-serif'>✈️</text></svg>",
+      "src": "/icon.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "type": "image/png",
+      "purpose": "any"
     }
   ]
 }
