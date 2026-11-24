@@ -4,13 +4,24 @@ const esc = s => String(s || '').replace(/[&<>"']/g, c =>
 
 const DEFAULT_AVATAR = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' width='80' height='80'><rect width='80' height='80' fill='%232b5278'/><text x='50%' y='54%' dominant-baseline='middle' text-anchor='middle' fill='white' font-size='32' font-family='sans-serif'>👤</text></svg>";
 
-const badgeHtml = u => u?.verified ? '<span class="verified-badge" title="Подтверждённый аккаунт">✓</span>' : '';
+const badgeHtml = u => {
+  let s = '';
+  if (u?.verified) s += '<span class="verified-badge" title="Подтверждённый аккаунт">✓</span>';
+  if (u?.isPremium) s += '<span class="prem-star" title="MailGram Premium">⭐</span>';
+  return s;
+};
+
 const tagsHtml = u => {
   let out = '';
   if (u?.username) out += `<span class="tag-user">@${esc(u.username)}</span>`;
   if (u?.nft_username) out += `<span class="tag-nft">💎 @${esc(u.nft_username)}</span>`;
+  if (u?.anon_number) out += `<span class="tag-anon">📞 ${esc(u.anon_number)}</span>`;
   return out;
 };
+
+function applyTheme(theme) {
+  document.body.className = 'theme-' + (theme || 'dark');
+}
 
 function playNotifySound() {
   try {
@@ -32,7 +43,7 @@ function playNotifySound() {
 const state = {
   token: localStorage.getItem('token'),
   user: null, socket: null, chats: [], activeChat: null,
-  shop: [], giftTargetUserId: null, unread: {}
+  shop: [], giftTargetUserId: null, unread: {}, selectedMsg: null
 };
 
 async function api(path, opts = {}) {
@@ -92,6 +103,7 @@ function renderMeBar() {
   $('#meAvatar').src = state.user.avatar || DEFAULT_AVATAR;
   $('#meName').innerHTML = esc(state.user.name) + badgeHtml(state.user);
   $('#meSub').textContent = `${state.user.stars} ⭐`;
+  applyTheme(state.user.theme);
 }
 
 async function enterApp() {
@@ -105,9 +117,19 @@ async function enterApp() {
 function connectSocket() {
   state.socket = io({ auth: { token: state.token } });
   state.socket.on('message', msg => {
-    if (state.activeChat && msg.chat_id === state.activeChat.id) {
-      appendMessage(msg);
-    }
+    if (state.activeChat && msg.chat_id === state.activeChat.id) appendMessage(msg);
+  });
+  state.socket.on('message:edited', ({ id, text }) => {
+    const el = document.querySelector(`[data-msg-id="${id}"] .msg-body-text`);
+    if (el) el.innerHTML = esc(text) + '<span class="edited-mark">изм.</span>';
+  });
+  state.socket.on('message:deleted', ({ id }) => {
+    const row = document.querySelector(`[data-msg-id="${id}"]`);
+    if (row) row.remove();
+  });
+  state.socket.on('message:reacted', ({ id, reactions }) => {
+    const row = document.querySelector(`[data-msg-id="${id}"] .reactions-row`);
+    if (row) row.innerHTML = renderReactionsHtml(reactions);
   });
   state.socket.on('chat:update', u => {
     const isCurrent = state.activeChat && state.activeChat.id === u.chatId;
@@ -124,6 +146,14 @@ function connectSocket() {
       loadChats();
     }
   });
+}
+
+function renderReactionsHtml(rx) {
+  if (!rx) return '';
+  return Object.entries(rx)
+    .filter(([, count]) => count > 0)
+    .map(([emo, count]) => `<span class="rx-pill">${emo} ${count}</span>`)
+    .join('');
 }
 
 async function loadChats() {
@@ -171,7 +201,7 @@ async function openChat(chat) {
   if (chat.type === 'private' && chat.peer) {
     av.src = chat.peer.avatar || DEFAULT_AVATAR;
     av.classList.remove('hidden');
-    sub.textContent = chat.peer.username ? '@' + chat.peer.username : '';
+    sub.textContent = chat.peer.username ? '@' + chat.peer.username : (chat.peer.anon_number || '');
   } else {
     av.classList.add('hidden');
     const kind = chat.type === 'channel' ? 'Канал' : 'Группа';
@@ -196,36 +226,118 @@ async function openChat(chat) {
   box.scrollTop = box.scrollHeight;
 }
 
+function buildVoicePlayer(src) {
+  const wrap = document.createElement('div');
+  wrap.className = 'tg-voice';
+  const heights =;
+  const bars = heights.map(h => `<span style="height:${h}px"></span>`).join('');
+  wrap.innerHTML = `
+    <button type="button" class="tg-voice-play">▶</button>
+    <div class="tg-wave">${bars}</div>
+    <span class="tg-voice-time">0:00</span>`;
+  const audio = new Audio(src);
+  const btn = wrap.querySelector('.tg-voice-play');
+  const timeEl = wrap.querySelector('.tg-voice-time');
+
+  const fmt = sec => {
+    if (!isFinite(sec)) return '0:00';
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  };
+  audio.onloadedmetadata = () => { timeEl.textContent = fmt(audio.duration); };
+  audio.ontimeupdate = () => { timeEl.textContent = fmt(audio.currentTime); };
+  audio.onended = () => {
+    wrap.classList.remove('playing');
+    btn.textContent = '▶';
+    timeEl.textContent = fmt(audio.duration);
+  };
+  btn.onclick = e => {
+    e.stopPropagation();
+    if (audio.paused) {
+      audio.play().catch(() => alert('Не удалось воспроизвести аудио'));
+      wrap.classList.add('playing');
+      btn.textContent = '⏸';
+    } else {
+      audio.pause();
+      wrap.classList.remove('playing');
+      btn.textContent = '▶';
+    }
+  };
+  return wrap;
+}
+
 function appendMessage(m) {
   const box = $('#messages');
   const el = document.createElement('div');
   el.className = 'msg' + (m.user_id === state.user.id ? ' mine' : '');
+  el.dataset.msgId = m.id;
+
+  const bubble = document.createElement('div');
   if (m.gift) {
-    el.innerHTML = `<div class="bubble gift-bubble">
+    bubble.className = 'bubble gift-bubble';
+    bubble.innerHTML = `
       <span class="gift-emoji">${m.gift.emoji}</span>
       <div style="font-weight:700">${esc(m.gift.name)}</div>
-      <div class="gift-label">Подарок от ${esc(m.user_name)}</div>
-    </div>`;
+      <div class="gift-label">Подарок от ${esc(m.user_name)}</div>`;
   } else if (m.media_type === 'image' && m.media_data) {
-    el.innerHTML = `<div class="bubble">
-      <div class="author">${esc(m.user_name)}</div>
-      <img class="chat-photo" src="${m.media_data}" alt="Фото">
-    </div>`;
+    bubble.className = 'bubble';
+    bubble.innerHTML = `<div class="author">${esc(m.user_name)}</div><img class="chat-photo" src="${m.media_data}" alt="Фото">`;
   } else if (m.media_type === 'audio' && m.media_data) {
-    el.innerHTML = `<div class="bubble">
-      <div class="author">${esc(m.user_name)}</div>
-      <audio class="chat-audio" controls src="${m.media_data}"></audio>
-    </div>`;
+    bubble.className = 'bubble';
+    bubble.innerHTML = `<div class="author">${esc(m.user_name)}</div>`;
+    bubble.appendChild(buildVoicePlayer(m.media_data));
   } else {
-    el.innerHTML = `<div class="bubble">
-      <div class="author">${esc(m.user_name)}</div>
-      <div class="text">${esc(m.text)}</div>
-    </div>`;
+    bubble.className = 'bubble';
+    const ed = m.edited ? '<span class="edited-mark">изм.</span>' : '';
+    bubble.innerHTML = `<div class="author">${esc(m.user_name)}</div><div class="text msg-body-text">${esc(m.text)}${ed}</div>`;
   }
+
+  const rxRow = document.createElement('div');
+  rxRow.className = 'reactions-row';
+  rxRow.innerHTML = renderReactionsHtml(m.reactions);
+  bubble.appendChild(rxRow);
+
+  bubble.onclick = () => {
+    state.selectedMsg = m;
+    const isMine = m.user_id === state.user.id;
+    const canEdit = isMine && !m.gift && !m.media_type;
+    $('#ownerMsgBtns').classList.toggle('hidden', !isMine);
+    $('#editMsgBtn').classList.toggle('hidden', !canEdit);
+    $('#msgActionModal').classList.remove('hidden');
+  };
+
+  el.appendChild(bubble);
   box.appendChild(el);
   box.scrollTop = box.scrollHeight;
 }
+/* ---------- Действия с сообщениями (редактировать / удалить / реакции) ---------- */
+document.querySelectorAll('#reactPicker button').forEach(btn => {
+  btn.onclick = () => {
+    if (!state.selectedMsg) return;
+    state.socket.emit('message:react', { msgId: state.selectedMsg.id, emoji: btn.dataset.react });
+    $('#msgActionModal').classList.add('hidden');
+  };
+});
 
+$('#editMsgBtn').onclick = () => {
+  if (!state.selectedMsg) return;
+  const next = prompt('Изменить сообщение:', state.selectedMsg.text);
+  if (next && next.trim()) {
+    state.socket.emit('message:edit', { msgId: state.selectedMsg.id, text: next.trim() });
+  }
+  $('#msgActionModal').classList.add('hidden');
+};
+
+$('#deleteMsgBtn').onclick = () => {
+  if (!state.selectedMsg) return;
+  if (confirm('Удалить это сообщение?')) {
+    state.socket.emit('message:delete', { msgId: state.selectedMsg.id });
+  }
+  $('#msgActionModal').classList.add('hidden');
+};
+
+/* ---------- Отправка текста и Редактор фото перед отправкой ---------- */
 $('#sendForm').onsubmit = e => {
   e.preventDefault();
   const input = $('#msgInput');
@@ -234,6 +346,20 @@ $('#sendForm').onsubmit = e => {
   state.socket.emit('message', { chatId: state.activeChat.id, text });
   input.value = '';
 };
+
+let rawPhotoImg = null;
+let isDrawing = false;
+const photoCanvas = $('#photoCanvas');
+const photoCtx = photoCanvas.getContext('2d');
+
+function drawBasePhoto() {
+  if (!rawPhotoImg) return;
+  const maxW = 520;
+  const scale = rawPhotoImg.width > maxW ? maxW / rawPhotoImg.width : 1;
+  photoCanvas.width = Math.round(rawPhotoImg.width * scale);
+  photoCanvas.height = Math.round(rawPhotoImg.height * scale);
+  photoCtx.drawImage(rawPhotoImg, 0, 0, photoCanvas.width, photoCanvas.height);
+}
 
 $('#attachPhotoBtn').onclick = () => {
   if (!state.activeChat) return alert('Сначала выберите чат');
@@ -245,16 +371,73 @@ $('#photoInput').onchange = e => {
   if (!file || !state.activeChat) return;
   const reader = new FileReader();
   reader.onload = () => {
-    state.socket.emit('message', {
-      chatId: state.activeChat.id,
-      mediaType: 'image',
-      mediaData: reader.result
-    });
+    const img = new Image();
+    img.onload = () => {
+      rawPhotoImg = img;
+      drawBasePhoto();
+      $('#photoCaptionInput').value = '';
+      $('#photoEditorModal').classList.remove('hidden');
+    };
+    img.src = reader.result;
     e.target.value = '';
   };
   reader.readAsDataURL(file);
 };
-/* ---------- Голосовые сообщения (запись с микрофона) ---------- */
+
+function getCanvasPos(ev) {
+  const rect = photoCanvas.getBoundingClientRect();
+  const clientX = ev.touches ? ev.touches.item(0).clientX : ev.clientX;
+  const clientY = ev.touches ? ev.touches.item(0).clientY : ev.clientY;
+  return {
+    x: (clientX - rect.left) * (photoCanvas.width / rect.width),
+    y: (clientY - rect.top) * (photoCanvas.height / rect.height)
+  };
+}
+
+photoCanvas.onpointerdown = e => {
+  isDrawing = true;
+  const pos = getCanvasPos(e);
+  photoCtx.strokeStyle = $('#drawColor').value;
+  photoCtx.lineWidth = 4;
+  photoCtx.lineCap = 'round';
+  photoCtx.beginPath();
+  photoCtx.moveTo(pos.x, pos.y);
+};
+photoCanvas.onpointermove = e => {
+  if (!isDrawing) return;
+  const pos = getCanvasPos(e);
+  photoCtx.lineTo(pos.x, pos.y);
+  photoCtx.stroke();
+};
+window.addEventListener('pointerup', () => { isDrawing = false; });
+
+$('#addTextBtn').onclick = () => {
+  const txt = $('#photoCaptionInput').value.trim();
+  if (!txt) return;
+  photoCtx.font = 'bold 26px sans-serif';
+  photoCtx.textAlign = 'center';
+  photoCtx.lineWidth = 4;
+  photoCtx.strokeStyle = '#000';
+  photoCtx.strokeText(txt, photoCanvas.width / 2, photoCanvas.height - 24);
+  photoCtx.fillStyle = $('#drawColor').value;
+  photoCtx.fillText(txt, photoCanvas.width / 2, photoCanvas.height - 24);
+  $('#photoCaptionInput').value = '';
+};
+
+$('#resetPhotoBtn').onclick = drawBasePhoto;
+
+$('#sendEditedPhotoBtn').onclick = () => {
+  if (!state.activeChat) return;
+  const dataUrl = photoCanvas.toDataURL('image/jpeg', 0.85);
+  state.socket.emit('message', {
+    chatId: state.activeChat.id,
+    mediaType: 'image',
+    mediaData: dataUrl
+  });
+  $('#photoEditorModal').classList.add('hidden');
+};
+
+/* ---------- Голосовые сообщения (запись) ---------- */
 let mediaRecorder = null;
 let audioChunks = [];
 
@@ -272,14 +455,18 @@ $('#voiceBtn').onclick = async () => {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     audioChunks = [];
-    mediaRecorder = new MediaRecorder(stream);
-    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+    const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+      : (MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '');
+    mediaRecorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+
+    mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
     mediaRecorder.onstop = () => {
       stream.getTracks().forEach(t => t.stop());
-      const blob = new Blob(audioChunks, { type: 'audio/webm' });
+      const type = mediaRecorder.mimeType || 'audio/webm';
+      const blob = new Blob(audioChunks, { type });
       const reader = new FileReader();
       reader.onload = () => {
-        if (state.activeChat) {
+        if (state.activeChat && reader.result) {
           state.socket.emit('message', {
             chatId: state.activeChat.id,
             mediaType: 'audio',
@@ -289,14 +476,13 @@ $('#voiceBtn').onclick = async () => {
       };
       reader.readAsDataURL(blob);
     };
-    mediaRecorder.start();
+    mediaRecorder.start(200);
     btn.classList.add('voice-rec');
     btn.textContent = '⏹️';
   } catch {
-    alert('Нет доступа к микрофону или браузер запретил запись');
+    alert('Разрешите доступ к микрофону в настройках браузера / приложения');
   }
 };
-
 /* ---------- Поиск и создание групп / каналов ---------- */
 $('#newChatForm').onsubmit = async e => {
   e.preventDefault();
@@ -328,21 +514,29 @@ $('#createRoomForm').onsubmit = async e => {
   } catch (err) { alert(err.message); }
 };
 
-/* ---------- Модальные окна, Профиль и Продажа подарков ---------- */
+/* ---------- Модальные окна, Профиль, Баннер и Продажа подарков ---------- */
 document.querySelectorAll('[data-close]').forEach(btn => {
   btn.onclick = () => $('#' + btn.dataset.close).classList.add('hidden');
 });
 
+function setBannerStyle(el, bannerUrl) {
+  if (bannerUrl) {
+    el.style.backgroundImage = `url("${bannerUrl}")`;
+  } else {
+    el.style.backgroundImage = 'linear-gradient(135deg, #1e3a8a, #581c87)';
+  }
+}
+
 function renderGiftsGrid(container, gifts, canSell = false) {
-  container.innerHTML = gifts.length ? '' : '<div style="color:#666;font-size:13px">Пока нет подарков</div>';
+  container.innerHTML = gifts.length ? '' : '<div style="color:var(--muted);font-size:13px">Пока нет подарков</div>';
   for (const g of gifts) {
     const card = document.createElement('div');
     card.className = 'gift-card';
-    const sellHtml = canSell && g.sellPrice
+    const sellHtml = canSell && g.sellPrice > 0
       ? `<button type="button" class="sell-btn" data-sell="${g.id}">Продать за +${g.sellPrice} ⭐</button>`
       : '';
     card.innerHTML = `<div class="g-ico">${g.emoji || '🎁'}</div>
-      <div class="g-name">${esc(g.name)}</div>
+      <div class="g-name">${esc(g.name || 'Подарок')}</div>
       <div class="g-sub">от ${esc(g.from_name)}</div>
       ${sellHtml}`;
     container.appendChild(card);
@@ -370,6 +564,7 @@ $('#openMyProfile').onclick = async () => {
   state.user = user;
   renderMeBar();
 
+  setBannerStyle($('#profBanner'), user.banner);
   $('#profAvatar').src = user.avatar || DEFAULT_AVATAR;
   $('#profNameTitle').innerHTML = esc(user.name) + badgeHtml(user);
   $('#profUsernames').innerHTML = tagsHtml(user);
@@ -379,18 +574,28 @@ $('#openMyProfile').onclick = async () => {
   renderGiftsGrid($('#myGiftsGrid'), gifts, true);
   $('#myProfileModal').classList.remove('hidden');
 };
-
+/* ---------- Настройки, Темы, Премиум и Расширенная Админка ---------- */
 function openSettingsModal() {
   $('#setAvatar').src = state.user.avatar || DEFAULT_AVATAR;
   $('#setNameInput').value = state.user.name;
   $('#setBioInput').value = state.user.bio || '';
   $('#setUsernameInput').value = state.user.username || '';
+  $('#setThemeSelect').value = state.user.theme || 'dark';
   $('#setPassInput').value = '';
+
+  if (state.user.isPremium) {
+    $('#buyPremBtn').textContent = 'Активен ✓';
+    $('#buyPremBtn').disabled = true;
+  } else {
+    $('#buyPremBtn').textContent = 'Купить 500 ⭐';
+    $('#buyPremBtn').disabled = false;
+  }
 
   if (state.user.isAdmin) {
     $('#adminPanel').classList.remove('hidden');
-    $('#admEmail').value = state.user.email;
+    $('#admQuery').value = state.user.username || state.user.email;
     $('#admVerified').checked = state.user.verified;
+    $('#admPremium').checked = state.user.isPremium;
   } else {
     $('#adminPanel').classList.add('hidden');
   }
@@ -401,6 +606,17 @@ $('#openSettingsBtn').onclick = openSettingsModal;
 $('#goSettingsFromProf').onclick = () => {
   $('#myProfileModal').classList.add('hidden');
   openSettingsModal();
+};
+
+$('#buyPremBtn').onclick = async () => {
+  if (!confirm('Купить MailGram Premium за 500 ⭐?')) return;
+  try {
+    const res = await api('/premium/buy', { method: 'POST' });
+    state.user = res.user;
+    renderMeBar();
+    openSettingsModal();
+    alert('Поздравляем! MailGram Premium ⭐ активирован!');
+  } catch (err) { alert(err.message); }
 };
 
 $('#avatarInput').onchange = e => {
@@ -418,6 +634,22 @@ $('#avatarInput').onchange = e => {
   reader.readAsDataURL(file);
 };
 
+$('#bannerInput').onchange = e => {
+  const file = e.target.files.item(0);
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const updated = await api('/profile', { method: 'POST', body: JSON.stringify({ banner: reader.result }) });
+      state.user = updated;
+      alert('Баннер профиля обновлён!');
+    } catch (err) { alert(err.message); }
+  };
+  reader.readAsDataURL(file);
+};
+
+$('#setThemeSelect').onchange = () => applyTheme($('#setThemeSelect').value);
+
 $('#settingsForm').onsubmit = async e => {
   e.preventDefault();
   try {
@@ -425,6 +657,7 @@ $('#settingsForm').onsubmit = async e => {
       name: $('#setNameInput').value,
       bio: $('#setBioInput').value,
       username: $('#setUsernameInput').value,
+      theme: $('#setThemeSelect').value,
       password: $('#setPassInput').value
     })});
     state.user = updated;
@@ -438,23 +671,30 @@ $('#adminForm').onsubmit = async e => {
   e.preventDefault();
   try {
     const res = await api('/admin/grant', { method: 'POST', body: JSON.stringify({
-      email: $('#admEmail').value,
+      query: $('#admQuery').value,
       stars: Number($('#admStars').value || 0),
       username: $('#admUsername').value,
       nft_username: $('#admNft').value,
-      verified: $('#admVerified').checked
+      anon_number: $('#admAnonNumber').value,
+      gift_id: $('#admGiftSelect').value,
+      verified: $('#admVerified').checked,
+      is_premium: $('#admPremium').checked
     })});
     if (res.user.id === state.user.id) {
       state.user = res.user;
       renderMeBar();
     }
-    alert('Права / звёзды успешно выданы!');
+    $('#admStars').value = '';
+    $('#admGiftSelect').value = '';
+    alert('Успешно выдано игроку ' + res.user.name + '!');
   } catch (err) { alert(err.message); }
 };
 
+/* ---------- Профиль собеседника и магазин подарков ---------- */
 $('#chatHeader').onclick = async () => {
   if (!state.activeChat?.peer) return;
   const { user, gifts } = await api('/users/' + state.activeChat.peer.id);
+  setBannerStyle($('#peerBanner'), user.banner);
   $('#peerAvatar').src = user.avatar || DEFAULT_AVATAR;
   $('#peerNameTitle').innerHTML = esc(user.name) + badgeHtml(user);
   $('#peerUsernames').innerHTML = tagsHtml(user);
