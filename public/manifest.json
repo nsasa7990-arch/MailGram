@@ -1,24 +1,23 @@
 {
-  "name": "MailGram",
-  "short_name": "MailGram",
-  "description": "Мессенджер со входом по почте",
+  "name": "Lume Messenger",
+  "short_name": "Lume",
+  "description": "Мессенджер нового поколения",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#0a0a0a",
   "orientation": "portrait",
+  "background_color": "#0f1620",
+  "theme_color": "#0f1620",
   "icons": [
-    {
-      "src": "/Square44x44Logo.targetsize-256.png",
-      "sizes": "256x256",
-      "type": "image/png",
-      "purpose": "any"
-    },
     {
       "src": "/launchericon-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any"
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/Square44x44Logo.targetsize-256.png",
+      "sizes": "256x256",
+      "type": "image/png"
     }
   ]
 }
